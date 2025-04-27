@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Bookmark, BookmarkCheck, Calendar, Clock, Star, ArrowLeft, Users } from "lucide-react"
+import { Star, ArrowLeft, Users, Heart, Play } from "lucide-react"
 import { fetchAnimeDetails, fetchAnimeCharacters, type Character } from "@/lib/api/anilist"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserAnimeRating, rateAnime } from "@/lib/api/ratings"
@@ -33,6 +33,7 @@ export default function AnimeDetailsPage() {
   const [isWatchlistLoading, setIsWatchlistLoading] = useState(false)
   const [userRating, setUserRating] = useState<number | null>(null)
   const [isRatingModalOpen, setIsRatingModalOpen] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
   const { toast } = useToast()
   const { isAuthenticated, token } = useAuth()
 
@@ -169,7 +170,7 @@ export default function AnimeDetailsPage() {
           Back
         </Button>
         <div className="grid grid-cols-1 gap-8 md:grid-cols-[300px_1fr]">
-          <Skeleton className="h-[450px] w-full rounded-lg" />
+          <Skeleton className="h-[450px] w-full rounded-xl" />
           <div className="space-y-4">
             <Skeleton className="h-8 w-3/4" />
             <Skeleton className="h-4 w-1/2" />
@@ -189,7 +190,7 @@ export default function AnimeDetailsPage() {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <h1 className="text-2xl font-bold">Anime not found</h1>
-        <Button onClick={() => router.back()} className="mt-4">
+        <Button onClick={() => router.back()} className="mt-4 bg-gradient hover:opacity-90">
           Go Back
         </Button>
       </div>
@@ -203,38 +204,78 @@ export default function AnimeDetailsPage() {
         Back
       </Button>
 
+      {/* Hero Banner */}
+      <div className="relative w-full h-[300px] md:h-[400px] rounded-2xl overflow-hidden mb-8">
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent z-10"></div>
+        <Image
+          src={anime.coverImage || "/placeholder.svg?height=400&width=1200"}
+          alt={anime.title}
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 1200px"
+          priority
+        />
+
+        <div className="absolute bottom-0 left-0 right-0 z-20 p-6 md:p-10">
+          <div className="flex flex-wrap gap-2 mb-3">
+            {anime.genres?.slice(0, 5).map((genre) => (
+              <Badge key={genre} variant="secondary" className="bg-primary/20 text-primary-foreground">
+                {genre}
+              </Badge>
+            ))}
+          </div>
+
+          <h1 className="text-3xl md:text-4xl font-bold mb-2 text-white">{anime.title}</h1>
+
+          {anime.titleJapanese && <p className="text-muted-foreground mb-4">{anime.titleJapanese}</p>}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-8 md:grid-cols-[280px_1fr]">
-        {/* Anime Cover Image */}
-        <div className="space-y-4">
-          <Card className="overflow-hidden">
+        {/* Anime Cover Image and Actions */}
+        <div className="space-y-6">
+          <Card className="overflow-hidden border-primary/20">
             <div className="relative aspect-[2/3] w-full">
+              <div
+                className={`absolute inset-0 bg-muted/50 flex items-center justify-center transition-opacity ${
+                  imageLoaded ? "opacity-0" : "opacity-100"
+                }`}
+              >
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+              </div>
               <Image
                 src={anime.coverImage || "/placeholder.svg?height=450&width=300"}
                 alt={anime.title}
                 fill
-                className="object-cover"
+                className={`object-cover transition-all duration-500 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
                 sizes="(max-width: 768px) 100vw, 300px"
                 priority
+                onLoad={() => setImageLoaded(true)}
               />
             </div>
           </Card>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <Button className="w-full bg-gradient hover:opacity-90">
+              <Play className="mr-2 h-4 w-4" />
+              Watch Now
+            </Button>
+
             {isAuthenticated && (
               <Button
                 variant="outline"
-                className="w-full"
+                className={`w-full ${isInWatchlist ? "bg-primary/10 border-primary/50 text-primary" : ""}`}
                 onClick={handleWatchlistToggle}
                 disabled={isWatchlistLoading}
               >
                 {isInWatchlist ? (
                   <>
-                    <BookmarkCheck className="mr-2 h-4 w-4" />
+                    <Heart className="mr-2 h-4 w-4 fill-primary" />
                     In Watchlist
                   </>
                 ) : (
                   <>
-                    <Bookmark className="mr-2 h-4 w-4" />
+                    <Heart className="mr-2 h-4 w-4" />
                     Add to Watchlist
                   </>
                 )}
@@ -249,56 +290,82 @@ export default function AnimeDetailsPage() {
 
           {/* User's Rating */}
           {userRating && (
-            <div className="rounded-md border p-3">
-              <p className="text-sm font-medium mb-1">Your Rating</p>
+            <div className="rounded-xl border border-primary/20 p-4 bg-primary/5">
+              <p className="text-sm font-medium mb-2">Your Rating</p>
               <div className="flex items-center">
-                <StarRating initialRating={userRating} readOnly size="sm" />
-                <span className="ml-2 text-sm">{userRating}/5</span>
+                <StarRating initialRating={userRating} readOnly size="md" />
+                <span className="ml-2 text-lg font-semibold text-primary">{userRating}/5</span>
               </div>
             </div>
           )}
+
+          {/* Quick Info */}
+          <div className="space-y-3 rounded-xl border border-border/50 p-4 bg-card/50">
+            <h3 className="font-semibold text-sm uppercase text-muted-foreground">Information</h3>
+
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {anime.score && (
+                <div>
+                  <p className="text-muted-foreground">Score</p>
+                  <div className="flex items-center">
+                    <Star className="h-3 w-3 text-yellow-400 mr-1" />
+                    <span className="font-medium">{anime.score}</span>
+                  </div>
+                </div>
+              )}
+
+              {anime.status && (
+                <div>
+                  <p className="text-muted-foreground">Status</p>
+                  <p className="font-medium">{anime.status.replace(/_/g, " ")}</p>
+                </div>
+              )}
+
+              {anime.episodes && (
+                <div>
+                  <p className="text-muted-foreground">Episodes</p>
+                  <p className="font-medium">{anime.episodes}</p>
+                </div>
+              )}
+
+              {anime.duration && (
+                <div>
+                  <p className="text-muted-foreground">Duration</p>
+                  <p className="font-medium">{anime.duration} min</p>
+                </div>
+              )}
+
+              {anime.season && anime.year && (
+                <div>
+                  <p className="text-muted-foreground">Season</p>
+                  <p className="font-medium">{`${anime.season.charAt(0).toUpperCase() + anime.season.slice(1).toLowerCase()} ${anime.year}`}</p>
+                </div>
+              )}
+
+              {anime.format && (
+                <div>
+                  <p className="text-muted-foreground">Format</p>
+                  <p className="font-medium">{anime.format.replace(/_/g, " ")}</p>
+                </div>
+              )}
+            </div>
+
+            {anime.studios && anime.studios.length > 0 && (
+              <div className="pt-2">
+                <p className="text-muted-foreground text-sm">Studios</p>
+                <p className="font-medium text-sm">{anime.studios.join(", ")}</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Anime Details */}
-        <div className="space-y-6">
-          <div>
-            <h1 className="text-3xl font-bold">{anime.title}</h1>
-            {anime.titleJapanese && <p className="text-muted-foreground">{anime.titleJapanese}</p>}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {anime.genres?.map((genre) => (
-              <Badge key={genre} variant="secondary">
-                {genre}
-              </Badge>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap gap-4 text-sm">
-            {anime.score && (
-              <div className="flex items-center">
-                <Star className="mr-1 h-4 w-4 fill-yellow-400 text-yellow-400" />
-                <span>{anime.score}</span>
-              </div>
-            )}
-            {anime.episodes && (
-              <div className="flex items-center">
-                <Clock className="mr-1 h-4 w-4" />
-                <span>{anime.episodes} episodes</span>
-              </div>
-            )}
-            {anime.year && (
-              <div className="flex items-center">
-                <Calendar className="mr-1 h-4 w-4" />
-                <span>{anime.year}</span>
-              </div>
-            )}
-            {anime.status && <Badge variant="outline">{anime.status.replace(/_/g, " ")}</Badge>}
-          </div>
-
+        <div className="space-y-8">
+          {/* Synopsis */}
           {anime.description && (
-            <Card>
+            <Card className="border-primary/20">
               <CardContent className="pt-6">
+                <h2 className="text-xl font-bold mb-4">Synopsis</h2>
                 <div
                   className="prose dark:prose-invert max-w-none"
                   dangerouslySetInnerHTML={{ __html: anime.description }}
@@ -307,72 +374,48 @@ export default function AnimeDetailsPage() {
             </Card>
           )}
 
-          {/* Additional Information */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {anime.studios && anime.studios.length > 0 && (
-              <div>
-                <h3 className="font-semibold">Studios</h3>
-                <p>{anime.studios.join(", ")}</p>
+          {/* Characters Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold flex items-center">
+                <Users className="mr-2 h-5 w-5 text-primary" />
+                Characters
+              </h2>
+
+              {characterLoadError && (
+                <Button variant="outline" size="sm" onClick={handleRetryCharacters} disabled={isLoadingCharacters}>
+                  Retry Loading Characters
+                </Button>
+              )}
+            </div>
+
+            {isLoadingCharacters ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-24 w-full rounded-xl" />
+                ))}
               </div>
-            )}
-            {anime.season && (
-              <div>
-                <h3 className="font-semibold">Season</h3>
-                <p>{`${anime.season.charAt(0).toUpperCase() + anime.season.slice(1).toLowerCase()} ${anime.year}`}</p>
+            ) : characterLoadError ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 py-8 bg-card/30">
+                <p className="text-muted-foreground">Failed to load character information</p>
               </div>
-            )}
-            {anime.format && (
-              <div>
-                <h3 className="font-semibold">Format</h3>
-                <p>{anime.format.replace(/_/g, " ")}</p>
+            ) : characters.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+                {characters.slice(0, 6).map((character) => (
+                  <CharacterCard
+                    key={character.id}
+                    character={character}
+                    onClick={() => handleCharacterClick(character)}
+                  />
+                ))}
               </div>
-            )}
-            {anime.duration && (
-              <div>
-                <h3 className="font-semibold">Episode Duration</h3>
-                <p>{anime.duration} minutes</p>
+            ) : (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 py-8 bg-card/30">
+                <p className="text-muted-foreground">No character information available</p>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Characters Section */}
-      <div className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <Users className="mr-2 h-5 w-5" />
-            <h2 className="text-2xl font-bold">Characters</h2>
-          </div>
-
-          {characterLoadError && (
-            <Button variant="outline" size="sm" onClick={handleRetryCharacters} disabled={isLoadingCharacters}>
-              Retry Loading Characters
-            </Button>
-          )}
-        </div>
-
-        {isLoadingCharacters ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-24 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : characterLoadError ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-8">
-            <p className="text-muted-foreground">Failed to load character information</p>
-          </div>
-        ) : characters.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {characters.map((character) => (
-              <CharacterCard key={character.id} character={character} onClick={() => handleCharacterClick(character)} />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-8">
-            <p className="text-muted-foreground">No character information available</p>
-          </div>
-        )}
       </div>
 
       {/* Character Detail Dialog */}

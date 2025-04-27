@@ -8,9 +8,8 @@ import Link from "next/link"
 import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Bookmark, BookmarkCheck, Star, Heart } from "lucide-react"
+import { Heart, Star, Info, Play } from "lucide-react"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserAnimeRating } from "@/lib/api/ratings"
 import { StarRating } from "@/components/star-rating"
@@ -21,6 +20,7 @@ interface AnimeCardProps {
   showAddToWatchlist?: boolean
   inWatchlist?: boolean
   onWatchlistUpdated?: (animeId: number, inWatchlist: boolean) => void
+  featured?: boolean
 }
 
 export function AnimeCard({
@@ -28,11 +28,13 @@ export function AnimeCard({
   showAddToWatchlist = false,
   inWatchlist = false,
   onWatchlistUpdated,
+  featured = false,
 }: AnimeCardProps) {
   const [isInWatchlist, setIsInWatchlist] = useState(inWatchlist)
   const [isLoading, setIsLoading] = useState(false)
   const [isCheckingWatchlist, setIsCheckingWatchlist] = useState(false)
   const [userRating, setUserRating] = useState<number | null>(null)
+  const [imageLoaded, setImageLoaded] = useState(false)
   const { token, isAuthenticated } = useAuth()
   const { toast } = useToast()
 
@@ -114,89 +116,170 @@ export function AnimeCard({
     }
   }
 
-  return (
-    <div className="flex flex-col">
-      <Link href={`/anime/${anime.id}`}>
-        <Card className="overflow-hidden transition-all hover:shadow-md hover:shadow-primary/5 cursor-pointer border-border/60">
-          <div className="relative aspect-[2/3] w-full overflow-hidden">
-            <Image
-              src={anime.coverImage || "/placeholder.svg?height=300&width=200"}
-              alt={anime.title}
-              fill
-              className="object-cover transition-transform hover:scale-105"
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
-            />
-            {anime.score && (
-              <div className="absolute right-2 top-2 flex items-center rounded-full bg-black/70 px-2 py-1 text-xs text-white">
-                <Star className="mr-1 h-3 w-3 fill-yellow-400 text-yellow-400" />
-                {anime.score}
-              </div>
-            )}
-
-            {/* Quick add to watchlist button */}
-            {isAuthenticated && (
-              <button
-                onClick={handleWatchlistToggle}
-                disabled={isLoading || isCheckingWatchlist}
-                className="absolute left-2 top-2 rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50"
-                aria-label={isInWatchlist ? "Remove from watchlist" : "Add to watchlist"}
-              >
-                {isInWatchlist ? (
-                  <Heart className="h-4 w-4 fill-red-500 text-red-500" />
-                ) : (
-                  <Heart className="h-4 w-4" />
-                )}
-              </button>
-            )}
-          </div>
-          <CardContent className="p-4">
-            <h3 className="line-clamp-1 font-bold">{anime.title}</h3>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {anime.genres?.slice(0, 2).map((genre) => (
-                <Badge key={genre} variant="secondary" className="text-xs">
+  if (featured) {
+    return (
+      <div className="relative w-full h-[400px] md:h-[500px] rounded-2xl overflow-hidden group">
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent z-10"></div>
+        <Image
+          src={anime.coverImage || "/placeholder.svg?height=500&width=1200"}
+          alt={anime.title}
+          fill
+          className={cn("object-cover transition-all duration-700 group-hover:scale-105", !imageLoaded && "blur-sm")}
+          sizes="(max-width: 768px) 100vw, 1200px"
+          onLoad={() => setImageLoaded(true)}
+        />
+        <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 md:p-10">
+          <div className="animate-slide-in">
+            <div className="flex flex-wrap gap-2 mb-3">
+              {anime.genres?.slice(0, 3).map((genre) => (
+                <Badge key={genre} variant="secondary" className="bg-primary/20 text-primary-foreground">
                   {genre}
                 </Badge>
               ))}
               {anime.status && (
-                <Badge variant="outline" className="text-xs">
-                  {anime.status}
+                <Badge variant="outline" className="border-primary/30 text-primary-foreground">
+                  {anime.status.replace(/_/g, " ")}
                 </Badge>
               )}
             </div>
 
-            {/* Show user rating if available */}
-            {userRating && (
-              <div className="mt-2 flex items-center">
-                <p className="text-xs text-muted-foreground mr-1">Your rating:</p>
-                <StarRating initialRating={userRating} readOnly size="sm" />
-              </div>
+            <h2 className="text-2xl md:text-4xl font-bold mb-2 text-white">{anime.title}</h2>
+
+            <div className="flex items-center gap-3 mb-4">
+              {anime.score && (
+                <div className="flex items-center bg-black/50 px-2 py-1 rounded-full">
+                  <Star className="h-4 w-4 text-yellow-400 mr-1" />
+                  <span className="text-sm font-medium">{anime.score}</span>
+                </div>
+              )}
+              {anime.episodes && <div className="text-sm text-muted-foreground">{anime.episodes} episodes</div>}
+              {anime.year && <div className="text-sm text-muted-foreground">{anime.year}</div>}
+            </div>
+
+            <div className="flex gap-3">
+              <Button asChild className="bg-primary hover:bg-primary/90">
+                <Link href={`/anime/${anime.id}`}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Watch Now
+                </Link>
+              </Button>
+
+              {isAuthenticated && (
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "border-white/20 hover:bg-white/10",
+                    isInWatchlist && "bg-primary/20 border-primary/50 text-primary-foreground",
+                  )}
+                  onClick={handleWatchlistToggle}
+                  disabled={isLoading || isCheckingWatchlist}
+                >
+                  <Heart className={cn("h-4 w-4 mr-2", isInWatchlist && "fill-primary text-primary")} />
+                  {isInWatchlist ? "In Watchlist" : "Add to Watchlist"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="anime-card group">
+      <Link href={`/anime/${anime.id}`} className="block">
+        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-t-xl">
+          <div
+            className={cn(
+              "absolute inset-0 bg-muted/50 flex items-center justify-center transition-opacity",
+              imageLoaded ? "opacity-0" : "opacity-100",
             )}
-          </CardContent>
-        </Card>
+          >
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          </div>
+          <Image
+            src={anime.coverImage || "/placeholder.svg?height=300&width=200"}
+            alt={anime.title}
+            fill
+            className={cn("object-cover transition-all duration-500", imageLoaded ? "opacity-100" : "opacity-0")}
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+            onLoad={() => setImageLoaded(true)}
+          />
+          {anime.score && (
+            <div className="absolute right-2 top-2 flex items-center rounded-full bg-black/70 px-2 py-1 text-xs text-white z-10">
+              <Star className="mr-1 h-3 w-3 fill-yellow-400 text-yellow-400" />
+              {anime.score}
+            </div>
+          )}
+
+          {/* Quick add to watchlist button */}
+          {isAuthenticated && (
+            <button
+              onClick={(e) => handleWatchlistToggle(e)}
+              disabled={isLoading || isCheckingWatchlist}
+              className="absolute left-2 top-2 rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50 z-10"
+              aria-label={isInWatchlist ? "Remove from watchlist" : "Add to watchlist"}
+            >
+              <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
+            </button>
+          )}
+
+          <div className="anime-card-overlay">
+            <h3 className="font-bold text-white mb-1">{anime.title}</h3>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {anime.genres?.slice(0, 2).map((genre) => (
+                <Badge key={genre} variant="secondary" className="text-xs bg-black/50">
+                  {genre}
+                </Badge>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="w-full mt-auto group-hover:bg-primary group-hover:text-white"
+            >
+              <Info className="h-3 w-3 mr-1" />
+              View Details
+            </Button>
+          </div>
+        </div>
+
+        {/* User rating indicator */}
+        {userRating && (
+          <div className="absolute bottom-2 left-2 flex items-center bg-black/70 rounded-full px-2 py-1 z-10">
+            <StarRating initialRating={userRating} readOnly size="sm" />
+          </div>
+        )}
       </Link>
+
       {showAddToWatchlist && (
-        <CardFooter className="p-4 pt-2">
+        <div className="p-3">
           <Button
             variant="outline"
             size="sm"
-            className="w-full"
+            className={cn("w-full", isInWatchlist && "bg-primary/10 border-primary/50 text-primary")}
             onClick={() => handleWatchlistToggle()}
             disabled={isLoading}
           >
             {isInWatchlist ? (
               <>
-                <BookmarkCheck className="mr-2 h-4 w-4" />
+                <Heart className="mr-2 h-4 w-4 fill-primary" />
                 In Watchlist
               </>
             ) : (
               <>
-                <Bookmark className="mr-2 h-4 w-4" />
+                <Heart className="mr-2 h-4 w-4" />
                 Add to Watchlist
               </>
             )}
           </Button>
-        </CardFooter>
+        </div>
       )}
     </div>
   )
+}
+
+// Helper function to conditionally join class names
+const cn = (...classes: (string | boolean | undefined)[]) => {
+  return classes.filter(Boolean).join(" ")
 }

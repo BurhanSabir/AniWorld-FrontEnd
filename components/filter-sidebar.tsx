@@ -12,7 +12,6 @@ import { Separator } from "@/components/ui/separator"
 import { useFilters, type FilterGroup } from "@/context/filter-context"
 import { ChevronDown, ChevronRight, FilterX, X, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useMobile } from "@/hooks/use-mobile"
 
 interface FilterSidebarProps {
   filterGroups: FilterGroup[]
@@ -40,8 +39,6 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     Object.fromEntries(filterGroups.map((group) => [group.id, true])),
   )
-
-  const isMobile = useMobile()
 
   // Check if there are any changes between active and staged filters
   const hasFilterChanges = () => {
@@ -81,9 +78,9 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
   }
 
   return (
-    <div className={cn("flex flex-col space-y-4 rounded-lg", className)}>
+    <div className={cn("flex flex-col space-y-4 rounded-xl bg-card/50 p-4 border border-border/50", className)}>
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-lg">Filters</h3>
+        <h3 className="text-lg font-semibold text-gradient">Filters</h3>
         {totalSelectedFilters > 0 && (
           <Button
             variant="ghost"
@@ -100,7 +97,7 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
 
       <Separator className="bg-border/60" />
 
-      <div className="space-y-4">
+      <div className="space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto pr-1">
         {filterGroups.map((group) => {
           const selectedCount = getSelectedCount(group.id)
           const stagedSelectedCount = getStagedSelectedCount(group.id)
@@ -109,14 +106,14 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
           return (
             <div key={group.id} className="pb-2">
               <div
-                className="flex items-center justify-between cursor-pointer py-1"
+                className="flex items-center justify-between cursor-pointer py-1 hover:text-primary transition-colors"
                 onClick={() => toggleGroup(group.id)}
               >
                 <div className="flex items-center">
                   {isExpanded ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronRight className="h-4 w-4 mr-1" />}
                   <h4 className="font-medium">{group.label}</h4>
                   {stagedSelectedCount > 0 && (
-                    <Badge variant="secondary" className="ml-2">
+                    <Badge variant="secondary" className="ml-2 bg-primary/20 text-primary">
                       {stagedSelectedCount}
                     </Badge>
                   )}
@@ -150,8 +147,12 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
                             checked={isStagedFilterActive(group.id, option.id)}
                             onCheckedChange={() => toggleStagedFilter(group.id, option.id)}
                             disabled={isLoading}
+                            className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                           />
-                          <Label htmlFor={`${group.id}-${option.id}`} className="text-sm cursor-pointer">
+                          <Label
+                            htmlFor={`${group.id}-${option.id}`}
+                            className="text-sm cursor-pointer hover:text-primary transition-colors"
+                          >
                             {option.label}
                           </Label>
                         </div>
@@ -168,8 +169,15 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
                     >
                       {group.options.map((option) => (
                         <div key={option.id} className="flex items-center space-x-2">
-                          <RadioGroupItem value={option.id} id={`${group.id}-${option.id}`} />
-                          <Label htmlFor={`${group.id}-${option.id}`} className="text-sm cursor-pointer">
+                          <RadioGroupItem
+                            value={option.id}
+                            id={`${group.id}-${option.id}`}
+                            className="text-primary border-primary/50"
+                          />
+                          <Label
+                            htmlFor={`${group.id}-${option.id}`}
+                            className="text-sm cursor-pointer hover:text-primary transition-colors"
+                          >
                             {option.label}
                           </Label>
                         </div>
@@ -209,8 +217,12 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
                         step={group.step || 1}
                         onValueChange={(values) => setStagedFilter(group.id, values[0])}
                         disabled={isLoading}
+                        className="[&>span]:bg-primary"
                       />
-                      <div className="text-center text-sm">Current: {stagedFilters[group.id] || group.min}</div>
+                      <div className="text-center text-sm">
+                        Current:{" "}
+                        <span className="text-primary font-medium">{stagedFilters[group.id] || group.min}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -224,7 +236,11 @@ export function FilterSidebar({ filterGroups, className }: FilterSidebarProps) {
 
       {/* Apply Filters Button */}
       <div className="pt-2">
-        <Button className="w-full" onClick={applyFilters} disabled={!hasFilterChanges() || isLoading}>
+        <Button
+          className="w-full bg-gradient hover:opacity-90 transition-opacity"
+          onClick={applyFilters}
+          disabled={!hasFilterChanges() || isLoading}
+        >
           <Check className="mr-2 h-4 w-4" />
           Apply Filters
         </Button>
