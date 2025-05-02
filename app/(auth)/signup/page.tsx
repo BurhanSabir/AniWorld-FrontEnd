@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { AlertCircle, UserPlus } from "lucide-react"
+import { AlertCircle, UserPlus, CheckCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function SignupPage() {
@@ -19,11 +19,15 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
   const { signup, loading } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (isSubmitting) return
+
     setError("")
     setSuccess("")
 
@@ -40,19 +44,33 @@ export default function SignupPage() {
     }
 
     try {
+      setIsSubmitting(true)
       const result = await signup(name, email, password)
 
       if (result?.success) {
-        if (result.message) {
-          setSuccess(result.message)
+        if (result.requiresEmailConfirmation) {
+          // Redirect to verification page
+          router.push(`/verify-email?email=${encodeURIComponent(email)}`)
         } else {
-          // If no message but success, redirect to anime page
+          // Auto-login successful, redirect to anime page
           router.push("/anime")
         }
       }
     } catch (err: any) {
       setError(err.message || "Failed to create account")
+    } finally {
+      setIsSubmitting(false)
     }
+  }
+
+  // Determine if button should be disabled
+  const isButtonDisabled = loading || isSubmitting
+
+  // Determine button text
+  const getButtonText = () => {
+    if (isSubmitting) return "Creating Account..."
+    if (loading && !isSubmitting) return "Please wait..."
+    return "Sign Up"
   }
 
   return (
@@ -76,6 +94,7 @@ export default function SignupPage() {
             )}
             {success && (
               <Alert className="bg-green-500/10 border-green-500/50 text-green-500">
+                <CheckCircle className="h-4 w-4" />
                 <AlertDescription>{success}</AlertDescription>
               </Alert>
             )}
@@ -88,6 +107,7 @@ export default function SignupPage() {
                 onChange={(e) => setName(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -100,6 +120,7 @@ export default function SignupPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -111,6 +132,7 @@ export default function SignupPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -122,12 +144,14 @@ export default function SignupPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
+              <p className="text-xs text-muted-foreground">Password must be at least 6 characters</p>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={loading}>
-              {loading ? "Creating Account..." : "Sign Up"}
+            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={isButtonDisabled}>
+              {getButtonText()}
             </Button>
             <div className="text-center text-sm">
               Already have an account?{" "}

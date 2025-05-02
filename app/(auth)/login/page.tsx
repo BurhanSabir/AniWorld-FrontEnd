@@ -19,14 +19,19 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [isResendingEmail, setIsResendingEmail] = useState(false)
   const [showConfirmationMessage, setShowConfirmationMessage] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
   const { login, loading, resendConfirmationEmail } = useAuth()
   const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (isSubmitting) return
+
     setError("")
     setShowConfirmationMessage(false)
+    setIsSubmitting(true)
 
     try {
       await login(email, password)
@@ -39,6 +44,8 @@ export default function LoginPage() {
       } else {
         setError(err.message || "Invalid email or password")
       }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -51,19 +58,21 @@ export default function LoginPage() {
     try {
       setIsResendingEmail(true)
       await resendConfirmationEmail(email)
-      toast({
-        title: "Confirmation email sent",
-        description: "Please check your inbox for the confirmation link",
-      })
     } catch (err: any) {
-      toast({
-        title: "Error",
-        description: err.message || "Failed to resend confirmation email",
-        variant: "destructive",
-      })
+      // Error is handled in the auth context with toast
     } finally {
       setIsResendingEmail(false)
     }
+  }
+
+  // Determine if button should be disabled
+  const isButtonDisabled = loading || isSubmitting || isResendingEmail
+
+  // Determine button text
+  const getButtonText = () => {
+    if (isSubmitting) return "Logging in..."
+    if (loading && !isSubmitting) return "Please wait..."
+    return "Login"
   }
 
   return (
@@ -114,6 +123,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -130,12 +140,13 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
+                disabled={isSubmitting}
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={loading}>
-              {loading ? "Logging in..." : "Login"}
+            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={isButtonDisabled}>
+              {getButtonText()}
             </Button>
             <div className="text-center text-sm">
               Don&apos;t have an account?{" "}
