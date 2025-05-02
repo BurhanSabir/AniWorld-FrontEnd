@@ -24,13 +24,13 @@ export function MobilePagination({ currentPage, totalPages, onPageChange, classN
         size="sm"
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
-        className="w-24"
+        className="w-24 hover:bg-primary/10 hover:text-primary"
       >
         <ChevronLeft className="mr-2 h-4 w-4" />
         Previous
       </Button>
 
-      <span className="text-sm">
+      <span className="text-sm font-medium">
         Page {currentPage} of {totalPages}
       </span>
 
@@ -39,7 +39,7 @@ export function MobilePagination({ currentPage, totalPages, onPageChange, classN
         size="sm"
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
-        className="w-24"
+        className="w-24 hover:bg-primary/10 hover:text-primary"
       >
         Next
         <ChevronRight className="ml-2 h-4 w-4" />

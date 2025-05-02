@@ -14,6 +14,7 @@ import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api
 import { getUserMangaRating } from "@/lib/api/ratings"
 import { StarRating } from "@/components/star-rating"
 import type { Manga } from "@/types/anime"
+import { cn } from "@/lib/utils"
 
 interface MangaCardProps {
   manga: Manga
@@ -186,7 +187,7 @@ export function MangaCard({
   }
 
   return (
-    <div className="anime-card group">
+    <div className={cn("anime-card group carousel-item", featured && "featured-card")}>
       <Link href={`/manga/${manga.id}`} className="block">
         <div className="relative aspect-[2/3] w-full overflow-hidden rounded-t-xl">
           <div
@@ -280,6 +281,6 @@ export function MangaCard({
 }
 
 // Helper function to conditionally join class names
-const cn = (...classes: (string | boolean | undefined)[]) => {
-  return classes.filter(Boolean).join(" ")
-}
+// const cn = (...classes: (string | boolean | undefined)[]) => {
+//   return classes.filter(Boolean).join(" ")
+// }

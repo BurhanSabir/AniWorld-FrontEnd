@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -17,30 +16,42 @@ export default function SignupPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [passwordConfirmation, setPasswordConfirmation] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [success, setSuccess] = useState("")
   const router = useRouter()
-  const { signup } = useAuth()
+  const { signup, loading } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccess("")
 
-    if (password !== passwordConfirmation) {
+    // Validate passwords match
+    if (password !== confirmPassword) {
       setError("Passwords do not match")
       return
     }
 
-    setIsLoading(true)
+    // Validate password strength
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
+      return
+    }
 
     try {
-      await signup(name, email, password)
-      router.push("/anime")
-    } catch (err) {
-      setError("Failed to create an account")
-    } finally {
-      setIsLoading(false)
+      const result = await signup(name, email, password)
+
+      if (result?.success) {
+        if (result.message) {
+          setSuccess(result.message)
+        } else {
+          // If no message but success, redirect to anime page
+          router.push("/anime")
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to create account")
     }
   }
 
@@ -53,7 +64,7 @@ export default function SignupPage() {
             <UserPlus className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl font-bold text-center">Create an Account</CardTitle>
-          <CardDescription className="text-center">Enter your information to create an account</CardDescription>
+          <CardDescription className="text-center">Enter your details to create your account</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -61,6 +72,11 @@ export default function SignupPage() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {success && (
+              <Alert className="bg-green-500/10 border-green-500/50 text-green-500">
+                <AlertDescription>{success}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
@@ -98,25 +114,25 @@ export default function SignupPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="passwordConfirmation">Confirm Password</Label>
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
               <Input
-                id="passwordConfirmation"
+                id="confirmPassword"
                 type="password"
-                value={passwordConfirmation}
-                onChange={(e) => setPasswordConfirmation(e.target.value)}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 className="border-primary/20 focus:border-primary"
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Sign Up"}
+            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={loading}>
+              {loading ? "Creating Account..." : "Sign Up"}
             </Button>
             <div className="text-center text-sm">
               Already have an account?{" "}
               <Link href="/login" className="font-medium text-primary hover:underline">
-                Login
+                Log in
               </Link>
             </div>
           </CardFooter>

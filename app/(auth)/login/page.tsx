@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -10,29 +9,60 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { AlertCircle, LogIn } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle, LogIn, Mail } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useToast } from "@/hooks/use-toast"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [isResendingEmail, setIsResendingEmail] = useState(false)
+  const [showConfirmationMessage, setShowConfirmationMessage] = useState(false)
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, loading, resendConfirmationEmail } = useAuth()
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    setIsLoading(true)
+    setShowConfirmationMessage(false)
 
     try {
       await login(email, password)
       router.push("/anime")
-    } catch (err) {
-      setError("Invalid email or password")
+    } catch (err: any) {
+      // Check if the error is about email confirmation
+      if (err.message && err.message.toLowerCase().includes("confirm your account")) {
+        setError(err.message)
+        setShowConfirmationMessage(true)
+      } else {
+        setError(err.message || "Invalid email or password")
+      }
+    }
+  }
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setError("Please enter your email address to resend the confirmation email")
+      return
+    }
+
+    try {
+      setIsResendingEmail(true)
+      await resendConfirmationEmail(email)
+      toast({
+        title: "Confirmation email sent",
+        description: "Please check your inbox for the confirmation link",
+      })
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to resend confirmation email",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
+      setIsResendingEmail(false)
     }
   }
 
@@ -49,12 +79,31 @@ export default function LoginPage() {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {error && (
+            {showConfirmationMessage ? (
+              <Alert className="bg-amber-500/10 border-amber-500/50 text-amber-500">
+                <Mail className="h-4 w-4" />
+                <AlertTitle>Email Confirmation Required</AlertTitle>
+                <AlertDescription className="mt-2">
+                  Your account needs to be verified. Please check your email for a confirmation link.
+                </AlertDescription>
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleResendConfirmation}
+                    disabled={isResendingEmail}
+                  >
+                    {isResendingEmail ? "Sending..." : "Resend Confirmation Email"}
+                  </Button>
+                </div>
+              </Alert>
+            ) : error ? (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
-            )}
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -85,8 +134,8 @@ export default function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={isLoading}>
-              {isLoading ? "Logging in..." : "Login"}
+            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={loading}>
+              {loading ? "Logging in..." : "Login"}
             </Button>
             <div className="text-center text-sm">
               Don&apos;t have an account?{" "}

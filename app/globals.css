@@ -220,3 +220,55 @@ body {
     transform: translateX(100%);
   }
 }
+
+/* Carousel styles */
+.carousel-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+
+.carousel-slide {
+  transition: transform 500ms ease;
+}
+
+.carousel-indicator {
+  transition: all 300ms ease;
+}
+
+.carousel-indicator.active {
+  width: 1.5rem;
+  background-color: hsl(var(--primary));
+}
+
+/* Enhanced animation for carousel items */
+.carousel-item {
+  transition: all 300ms ease;
+}
+
+.carousel-item:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 15px -3px hsl(var(--primary) / 0.2);
+}
+
+/* Carousel navigation buttons */
+.carousel-nav-button {
+  background-color: hsl(var(--background) / 0.8);
+  backdrop-filter: blur(4px);
+  border: 1px solid hsl(var(--border));
+  opacity: 0.8;
+  transition: opacity 200ms ease;
+}
+
+.carousel-nav-button:hover {
+  opacity: 1;
+}
+
+/* Responsive adjustments for carousel */
+@media (max-width: 768px) {
+  .carousel-container {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    width: calc(100% + 2rem);
+  }
+}

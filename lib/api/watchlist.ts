@@ -1,200 +1,155 @@
-// This file contains API calls for watchlist management
-// In a real app, these would call your Rails backend
+import { getSupabaseClient } from "@/lib/supabase/client"
 import type { Anime, Manga } from "@/types/anime"
-import { fetchAnimeDetails } from "@/lib/api/anilist"
+import { syncAnimeData } from "@/lib/api/sync"
 
-// Mock data for demo purposes
-const MOCK_ANIME_WATCHLIST: Anime[] = [
-  {
-    id: 1,
-    title: "Attack on Titan",
-    coverImage: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx16498-C6FPmWm59CyP.jpg",
-    genres: ["Action", "Drama"],
-    score: "9.0",
-    status: "FINISHED",
-    episodes: 25,
-    year: 2013,
-  },
-  {
-    id: 2,
-    title: "My Hero Academia",
-    coverImage: "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx21856-UD7JwU5HFkmp.jpg",
-    genres: ["Action", "Comedy"],
-    score: "8.2",
-    status: "RELEASING",
-    episodes: 113,
-    year: 2016,
-  },
-]
+// Fetch user's watchlist
+export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise<Anime[] | Manga[]> {
+  const supabase = getSupabaseClient()
 
-// Mock data for manga watchlist
-const MOCK_MANGA_WATCHLIST: Manga[] = [
-  {
-    id: 101,
-    title: "One Piece",
-    coverImage: "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx30013-oT7YguhEK1TE.jpg",
-    genres: ["Action", "Adventure"],
-    score: "9.1",
-    status: "RELEASING",
-    chapters: 1050,
-    volumes: 103,
-    year: 1997,
-  },
-  {
-    id: 102,
-    title: "Berserk",
-    coverImage: "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx30002-7EzO7o21jzeF.jpg",
-    genres: ["Action", "Drama", "Fantasy", "Horror"],
-    score: "9.4",
-    status: "RELEASING",
-    chapters: 364,
-    volumes: 41,
-    year: 1989,
-  },
-]
+  try {
+    // Get the user's watchlist items
+    const { data: watchlistItems, error } = await supabase
+      .from("watchlists")
+      .select("id, item_id, created_at")
+      .eq("item_type", type)
+      .order("created_at", { ascending: false })
 
-// In-memory storage for added/removed items
-let dynamicAnimeWatchlist = [...MOCK_ANIME_WATCHLIST]
-let dynamicMangaWatchlist = [...MOCK_MANGA_WATCHLIST]
+    if (error) throw error
 
-// Cache for anime/manga details
-const animeDetailsCache = new Map<number, Anime>()
-const mangaDetailsCache = new Map<number, Manga>()
+    if (!watchlistItems || watchlistItems.length === 0) {
+      return []
+    }
 
-export async function fetchWatchlist(token: string, type: "anime" | "manga" = "anime"): Promise<Anime[] | Manga[]> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/watchlist?type=${type}`, {
-  //   headers: { 'Authorization': `Bearer ${token}` },
-  // }).then(res => res.json())
+    // Get the item details from the respective table
+    const itemIds = watchlistItems.map((item) => item.item_id)
+    const { data: items, error: itemsError } = await supabase.from(type).select("*").in("id", itemIds)
 
-  // For demo purposes, we'll return mock data
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(type === "anime" ? dynamicAnimeWatchlist : dynamicMangaWatchlist)
-    }, 500)
-  })
+    if (itemsError) throw itemsError
+
+    // If we don't have the items in our database, fetch them from the API
+    if (!items || items.length === 0) {
+      // For demo purposes, we'll return an empty array
+      // In a real app, you might want to fetch the items from an external API
+      return []
+    }
+
+    // Transform the data to match our frontend types
+    return items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      coverImage: item.cover_image,
+      genres: item.genres,
+      score: item.score?.toString(),
+      status: item.status,
+      ...(type === "anime"
+        ? { episodes: item.episodes, year: item.year }
+        : { chapters: item.chapters, volumes: item.volumes, year: item.year }),
+    }))
+  } catch (error) {
+    console.error(`Error fetching ${type} watchlist:`, error)
+    throw error
+  }
 }
 
-export async function addToWatchlist(itemId: number, token: string, type: "anime" | "manga" = "anime"): Promise<void> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/watchlist`, {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'Authorization': `Bearer ${token}`
-  //   },
-  //   body: JSON.stringify({ item_id: itemId, type }),
-  // }).then(res => res.json())
+// Add an item to the watchlist
+export async function addToWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<void> {
+  const supabase = getSupabaseClient()
 
-  // For demo purposes, we'll simulate a successful API call
-  return new Promise(async (resolve) => {
-    // Check if the item is already in the watchlist
-    const watchlist = type === "anime" ? dynamicAnimeWatchlist : dynamicMangaWatchlist
-    const existingItem = watchlist.find((item) => item.id === itemId)
+  try {
+    // Check if the item exists in our database
+    const { data: existingItem } = await supabase.from(type).select("id").eq("id", itemId).single()
 
-    if (existingItem) {
-      resolve()
-      return
-    }
-
-    // Check if we have cached details for this item
-    const cache = type === "anime" ? animeDetailsCache : mangaDetailsCache
-    let itemDetails = cache.get(itemId)
-
-    if (!itemDetails) {
-      try {
-        // For anime, fetch real details from the API
-        if (type === "anime") {
-          const details = await fetchAnimeDetails(itemId)
-          animeDetailsCache.set(itemId, details)
-          itemDetails = details
-        } else {
-          // For manga, create a placeholder (in a real app, you'd fetch from API)
-          itemDetails = {
-            id: itemId,
-            title: `Manga #${itemId}`,
-            coverImage: `https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/nx${itemId}-${Math.random().toString(36).substring(7)}.jpg`,
-            genres: ["Action", "Adventure"],
-            score: (Math.random() * 2 + 7).toFixed(1),
-            status: "RELEASING",
-            chapters: Math.floor(Math.random() * 100) + 1,
-            volumes: Math.floor(Math.random() * 10) + 1,
-            year: 2023,
-          }
-          mangaDetailsCache.set(itemId, itemDetails)
-        }
-      } catch (error) {
-        console.error(`Failed to fetch ${type} details:`, error)
-        // Fallback to a placeholder
-        itemDetails = {
-          id: itemId,
-          title: `${type.charAt(0).toUpperCase() + type.slice(1)} #${itemId}`,
-          coverImage: `/placeholder.svg?height=300&width=200&text=${type}${itemId}`,
-          genres: ["Unknown"],
-          score: "0.0",
-          status: "UNKNOWN",
-          ...(type === "anime" ? { episodes: 0 } : { chapters: 0, volumes: 0 }),
-          year: new Date().getFullYear(),
-        }
-      }
-    }
-
-    // Add the item to the watchlist
-    if (type === "anime") {
-      dynamicAnimeWatchlist = [...dynamicAnimeWatchlist, itemDetails as Anime]
-    } else {
-      dynamicMangaWatchlist = [...dynamicMangaWatchlist, itemDetails as Manga]
-    }
-
-    setTimeout(() => {
-      resolve()
-    }, 300)
-  })
-}
-
-export async function removeFromWatchlist(
-  itemId: number,
-  token: string,
-  type: "anime" | "manga" = "anime",
-): Promise<void> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/watchlist/${itemId}?type=${type}`, {
-  //   method: 'DELETE',
-  //   headers: { 'Authorization': `Bearer ${token}` },
-  // }).then(res => res.json())
-
-  // For demo purposes, we'll simulate a successful API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Remove the item from the dynamic watchlist
+    // If the item doesn't exist in our database, sync it
+    if (!existingItem) {
       if (type === "anime") {
-        dynamicAnimeWatchlist = dynamicAnimeWatchlist.filter((item) => item.id !== itemId)
+        await syncAnimeData(itemId)
       } else {
-        dynamicMangaWatchlist = dynamicMangaWatchlist.filter((item) => item.id !== itemId)
+        // For manga, we would need a similar function
+        // This is simplified for the demo
+        // await syncMangaData(itemId)
       }
-      resolve()
-    }, 300)
-  })
+    }
+
+    // Add the item to the user's watchlist
+    const { error } = await supabase.from("watchlists").insert({
+      item_id: itemId,
+      item_type: type,
+    })
+
+    if (error) {
+      // If the error is because the item is already in the watchlist, we can ignore it
+      if (error.code === "23505") {
+        // Unique violation
+        return
+      }
+      throw error
+    }
+  } catch (error) {
+    console.error(`Error adding ${type} to watchlist:`, error)
+    throw error
+  }
 }
 
-export async function checkInWatchlist(
-  itemId: number,
-  token: string,
-  type: "anime" | "manga" = "anime",
-): Promise<boolean> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/watchlist/check/${itemId}?type=${type}`, {
-  //   headers: { 'Authorization': `Bearer ${token}` },
-  // }).then(res => res.json()).then(data => data.inWatchlist)
+// Remove an item from the watchlist
+export async function removeFromWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<void> {
+  const supabase = getSupabaseClient()
 
-  // For demo purposes, we'll check if the item is in our dynamic watchlist
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (type === "anime") {
-        resolve(dynamicAnimeWatchlist.some((item) => item.id === itemId))
-      } else {
-        resolve(dynamicMangaWatchlist.some((item) => item.id === itemId))
+  try {
+    const { error } = await supabase.from("watchlists").delete().eq("item_id", itemId).eq("item_type", type)
+
+    if (error) throw error
+  } catch (error) {
+    console.error(`Error removing ${type} from watchlist:`, error)
+    throw error
+  }
+}
+
+// Check if an item is in the watchlist
+export async function checkInWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<boolean> {
+  const supabase = getSupabaseClient()
+
+  try {
+    const { data, error } = await supabase
+      .from("watchlists")
+      .select("id")
+      .eq("item_id", itemId)
+      .eq("item_type", type)
+      .single()
+
+    if (error) {
+      // If the error is because the item is not found, return false
+      if (error.code === "PGRST116") {
+        // Not found
+        return false
       }
-    }, 300)
-  })
+      throw error
+    }
+
+    return !!data
+  } catch (error) {
+    console.error(`Error checking if ${type} is in watchlist:`, error)
+    return false
+  }
+}
+
+// Get watchlist count
+export async function getWatchlistCount(type?: "anime" | "manga"): Promise<number> {
+  const supabase = getSupabaseClient()
+
+  try {
+    let query = supabase.from("watchlists").select("id", { count: "exact" })
+
+    if (type) {
+      query = query.eq("item_type", type)
+    }
+
+    const { count, error } = await query
+
+    if (error) throw error
+
+    return count || 0
+  } catch (error) {
+    console.error("Error getting watchlist count:", error)
+    return 0
+  }
 }

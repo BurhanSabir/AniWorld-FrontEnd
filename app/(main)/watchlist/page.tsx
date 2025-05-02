@@ -8,10 +8,22 @@ import { MangaCard } from "@/components/manga-card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { fetchWatchlist } from "@/lib/api/watchlist"
+import { fetchWatchlist, removeFromWatchlist } from "@/lib/api/watchlist"
 import type { Anime, Manga } from "@/types/anime"
 import Link from "next/link"
-import { Film, BookOpen, Bookmark } from "lucide-react"
+import { Film, BookOpen, Bookmark, Trash2 } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 export default function WatchlistPage() {
   const [animeWatchlist, setAnimeWatchlist] = useState<Anime[]>([])
@@ -19,23 +31,28 @@ export default function WatchlistPage() {
   const [isLoadingAnime, setIsLoadingAnime] = useState(true)
   const [isLoadingManga, setIsLoadingManga] = useState(true)
   const [activeTab, setActiveTab] = useState<"anime" | "manga">("anime")
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; type: "anime" | "manga" } | null>(null)
   const { toast } = useToast()
-  const { isAuthenticated, token, user } = useAuth()
+  const { isAuthenticated, user } = useAuth()
 
   useEffect(() => {
     const loadWatchlist = async () => {
-      if (!isAuthenticated || !token) return
+      if (!isAuthenticated) {
+        setIsLoadingAnime(false)
+        setIsLoadingManga(false)
+        return
+      }
 
       try {
         // Load anime watchlist
         setIsLoadingAnime(true)
-        const animeData = (await fetchWatchlist(token, "anime")) as Anime[]
+        const animeData = (await fetchWatchlist("anime")) as Anime[]
         setAnimeWatchlist(animeData)
         setIsLoadingAnime(false)
 
         // Load manga watchlist
         setIsLoadingManga(true)
-        const mangaData = (await fetchWatchlist(token, "manga")) as Manga[]
+        const mangaData = (await fetchWatchlist("manga")) as Manga[]
         setMangaWatchlist(mangaData)
         setIsLoadingManga(false)
       } catch (error) {
@@ -50,7 +67,7 @@ export default function WatchlistPage() {
     }
 
     loadWatchlist()
-  }, [isAuthenticated, token, toast])
+  }, [isAuthenticated, toast])
 
   const handleAnimeWatchlistUpdated = (animeId: number, inWatchlist: boolean) => {
     if (!inWatchlist) {
@@ -64,20 +81,50 @@ export default function WatchlistPage() {
     }
   }
 
+  const handleDeleteItem = async () => {
+    if (!itemToDelete) return
+
+    try {
+      await removeFromWatchlist(itemToDelete.id, itemToDelete.type)
+
+      if (itemToDelete.type === "anime") {
+        setAnimeWatchlist((prev) => prev.filter((a) => a.id !== itemToDelete.id))
+      } else {
+        setMangaWatchlist((prev) => prev.filter((m) => m.id !== itemToDelete.id))
+      }
+
+      toast({
+        description: `Removed from your ${itemToDelete.type === "anime" ? "anime" : "manga"} watchlist`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to remove from watchlist",
+        variant: "destructive",
+      })
+    } finally {
+      setItemToDelete(null)
+    }
+  }
+
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col items-center justify-center space-y-6 py-16">
-        <div className="h-24 w-24 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-          <Bookmark className="h-12 w-12 text-primary" />
-        </div>
-        <h1 className="text-3xl font-bold text-center">Your Watchlist</h1>
-        <p className="text-muted-foreground text-center max-w-md">
-          Track your favorite anime and manga in one place. Please log in to view and manage your watchlist.
-        </p>
-        <Button asChild size="lg" className="mt-4 bg-gradient hover:opacity-90">
-          <Link href="/login">Login to Continue</Link>
-        </Button>
-      </div>
+      <Card className="py-16">
+        <CardContent className="text-center space-y-6">
+          <div className="mx-auto w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+            <Bookmark className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <div className="space-y-2 max-w-md mx-auto">
+            <h2 className="text-2xl font-bold">Login to see your watchlist</h2>
+            <p className="text-muted-foreground">
+              Track your favorite anime and manga by creating an account or logging in.
+            </p>
+          </div>
+          <Button asChild className="bg-gradient hover:opacity-90">
+            <Link href="/login">Login</Link>
+          </Button>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -118,12 +165,33 @@ export default function WatchlistPage() {
           ) : animeWatchlist.length > 0 ? (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {animeWatchlist.map((anime) => (
-                <AnimeCard
-                  key={anime.id}
-                  anime={anime}
-                  inWatchlist={true}
-                  onWatchlistUpdated={handleAnimeWatchlistUpdated}
-                />
+                <div key={anime.id} className="relative group">
+                  <AnimeCard anime={anime} inWatchlist={true} onWatchlistUpdated={handleAnimeWatchlistUpdated} />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                        onClick={() => setItemToDelete({ id: anime.id, type: "anime" })}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove from watchlist?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to remove "{anime.title}" from your watchlist?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setItemToDelete(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteItem}>Remove</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               ))}
             </div>
           ) : (
@@ -156,12 +224,33 @@ export default function WatchlistPage() {
           ) : mangaWatchlist.length > 0 ? (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {mangaWatchlist.map((manga) => (
-                <MangaCard
-                  key={manga.id}
-                  manga={manga}
-                  inWatchlist={true}
-                  onWatchlistUpdated={handleMangaWatchlistUpdated}
-                />
+                <div key={manga.id} className="relative group">
+                  <MangaCard manga={manga} inWatchlist={true} onWatchlistUpdated={handleMangaWatchlistUpdated} />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                        onClick={() => setItemToDelete({ id: manga.id, type: "manga" })}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove from watchlist?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to remove "{manga.title}" from your watchlist?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setItemToDelete(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteItem}>Remove</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               ))}
             </div>
           ) : (

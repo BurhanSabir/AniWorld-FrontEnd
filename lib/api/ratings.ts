@@ -1,76 +1,222 @@
-// This file contains API calls for user ratings
-// In a real app, these would call your Rails backend
+import { getSupabaseClient } from "@/lib/supabase/client"
+import type { AnimeRating } from "@/types/anime"
 
 interface RatingResponse {
   success: boolean
   message: string
   rating?: number
-  averageRating?: number
+  averageRating?: string
 }
 
-export async function rateAnime(animeId: number, rating: number, token: string): Promise<RatingResponse> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/anime/${animeId}/rate`, {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'Authorization': `Bearer ${token}`
-  //   },
-  //   body: JSON.stringify({ rating }),
-  // }).then(res => res.json())
+// Rate an anime or manga
+export async function rateItem(
+  itemId: number,
+  rating: number,
+  type: "anime" | "manga" = "anime",
+): Promise<RatingResponse> {
+  const supabase = getSupabaseClient()
 
-  // For demo purposes, we'll simulate a successful API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        success: true,
-        message: "Rating submitted successfully",
-        rating: rating,
-        averageRating: (Math.random() * 2 + 7).toFixed(1), // Random average between 7-9
+  try {
+    // Check if the user has already rated this item
+    const { data: existingRating } = await supabase
+      .from("ratings")
+      .select("id, rating")
+      .eq("item_id", itemId)
+      .eq("item_type", type)
+      .single()
+
+    let result
+
+    if (existingRating) {
+      // Update the existing rating
+      result = await supabase
+        .from("ratings")
+        .update({
+          rating,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingRating.id)
+    } else {
+      // Insert a new rating
+      result = await supabase.from("ratings").insert({
+        item_id: itemId,
+        item_type: type,
+        rating,
       })
-    }, 500)
-  })
+    }
+
+    if (result.error) throw result.error
+
+    // Calculate the new average rating
+    const { data: avgData, error: avgError } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("item_id", itemId)
+      .eq("item_type", type)
+
+    if (avgError) throw avgError
+
+    let averageRating = "0.0"
+
+    if (avgData && avgData.length > 0) {
+      const sum = avgData.reduce((acc, curr) => acc + curr.rating, 0)
+      averageRating = (sum / avgData.length).toFixed(1)
+
+      // Update the average score in the item table
+      await supabase.from(type).update({ average_score: averageRating }).eq("id", itemId)
+    }
+
+    return {
+      success: true,
+      message: "Rating submitted successfully",
+      rating,
+      averageRating,
+    }
+  } catch (error) {
+    console.error(`Error rating ${type}:`, error)
+    return {
+      success: false,
+      message: `Failed to submit rating: ${error.message}`,
+    }
+  }
 }
 
-export async function rateManga(mangaId: number, rating: number, token: string): Promise<RatingResponse> {
-  // In a real app, this would be a fetch call to your Rails API
-  // Similar to rateAnime but for manga
+// Alias functions for backward compatibility
+export const rateAnime = (animeId: number, rating: number) => rateItem(animeId, rating, "anime")
 
-  // For demo purposes, we'll simulate a successful API call
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        success: true,
-        message: "Rating submitted successfully",
-        rating: rating,
-        averageRating: (Math.random() * 2 + 7).toFixed(1), // Random average between 7-9
-      })
-    }, 500)
-  })
+export const rateManga = (mangaId: number, rating: number) => rateItem(mangaId, rating, "manga")
+
+// Get a user's rating for an item
+export async function getUserRating(itemId: number, type: "anime" | "manga" = "anime"): Promise<number | null> {
+  const supabase = getSupabaseClient()
+
+  try {
+    const { data, error } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("item_id", itemId)
+      .eq("item_type", type)
+      .single()
+
+    if (error) {
+      // If the error is because the rating is not found, return null
+      if (error.code === "PGRST116") {
+        // Not found
+        return null
+      }
+      throw error
+    }
+
+    return data.rating
+  } catch (error) {
+    console.error(`Error getting user ${type} rating:`, error)
+    return null
+  }
 }
 
-export async function getUserAnimeRating(animeId: number, token: string): Promise<number | null> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/anime/${animeId}/user-rating`, {
-  //   headers: { 'Authorization': `Bearer ${token}` },
-  // }).then(res => res.json()).then(data => data.rating)
+// Alias functions for backward compatibility
+export const getUserAnimeRating = (animeId: number) => getUserRating(animeId, "anime")
 
-  // For demo purposes, we'll return a random rating or null
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // 30% chance of having rated this anime before
-      const hasRated = Math.random() < 0.3
-      resolve(hasRated ? Math.floor(Math.random() * 5) + 1 : null)
-    }, 300)
-  })
+export const getUserMangaRating = (mangaId: number) => getUserRating(mangaId, "manga")
+
+// Fetch all ratings for the current user
+export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeRating[]> {
+  const supabase = getSupabaseClient()
+
+  try {
+    // Build the query
+    let query = supabase
+      .from("ratings")
+      .select(`
+        id,
+        item_id,
+        item_type,
+        rating,
+        created_at,
+        updated_at,
+        ${type === "anime" ? "anime" : type === "manga" ? "manga" : "anime, manga"}(id, title, cover_image)
+      `)
+      .order("updated_at", { ascending: false })
+
+    // Filter by type if provided
+    if (type) {
+      query = query.eq("item_type", type)
+    }
+
+    const { data, error } = await query
+
+    if (error) throw error
+
+    if (!data || data.length === 0) {
+      return []
+    }
+
+    // Transform the data to match the AnimeRating type
+    const ratings: AnimeRating[] = data.map((item) => {
+      const mediaData = item.item_type === "anime" ? item.anime : item.manga
+
+      return {
+        id: item.id,
+        mediaId: item.item_id,
+        type: item.item_type,
+        rating: item.rating,
+        title: mediaData?.title || "Unknown Title",
+        coverImage: mediaData?.cover_image || null,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+      }
+    })
+
+    return ratings
+  } catch (error) {
+    console.error("Error fetching user ratings:", error)
+    return []
+  }
 }
 
-export async function getUserMangaRating(mangaId: number, token: string): Promise<number | null> {
-  // Similar to getUserAnimeRating but for manga
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const hasRated = Math.random() < 0.3
-      resolve(hasRated ? Math.floor(Math.random() * 5) + 1 : null)
-    }, 300)
-  })
+// Delete a rating
+export async function deleteRating(ratingId: number): Promise<boolean> {
+  const supabase = getSupabaseClient()
+
+  try {
+    // Get the rating details first to update the average score later
+    const { data: ratingData, error: fetchError } = await supabase
+      .from("ratings")
+      .select("item_id, item_type")
+      .eq("id", ratingId)
+      .single()
+
+    if (fetchError) throw fetchError
+
+    // Delete the rating
+    const { error } = await supabase.from("ratings").delete().eq("id", ratingId)
+
+    if (error) throw error
+
+    // Recalculate the average rating
+    if (ratingData) {
+      const { data: avgData, error: avgError } = await supabase
+        .from("ratings")
+        .select("rating")
+        .eq("item_id", ratingData.item_id)
+        .eq("item_type", ratingData.item_type)
+
+      if (avgError) throw avgError
+
+      let averageRating = "0.0"
+
+      if (avgData && avgData.length > 0) {
+        const sum = avgData.reduce((acc, curr) => acc + curr.rating, 0)
+        averageRating = (sum / avgData.length).toFixed(1)
+      }
+
+      // Update the average score in the item table
+      await supabase.from(ratingData.item_type).update({ average_score: averageRating }).eq("id", ratingData.item_id)
+    }
+
+    return true
+  } catch (error) {
+    console.error("Error deleting rating:", error)
+    return false
+  }
 }

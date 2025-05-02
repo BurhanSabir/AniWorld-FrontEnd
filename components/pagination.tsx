@@ -79,6 +79,7 @@ export function Pagination({
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
         aria-label="Previous page"
+        className="rounded-full hover:bg-primary/10 hover:text-primary"
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
@@ -108,6 +109,10 @@ export function Pagination({
               onClick={() => onPageChange(page as number)}
               aria-label={`Page ${page}`}
               aria-current={currentPage === page ? "page" : undefined}
+              className={cn(
+                "rounded-full w-8 h-8",
+                currentPage === page ? "bg-primary text-white" : "hover:bg-primary/10 hover:text-primary",
+              )}
             >
               {page}
             </Button>
@@ -120,6 +125,7 @@ export function Pagination({
         onClick={() => onPageChange(currentPage + 1)}
         disabled={currentPage === totalPages}
         aria-label="Next page"
+        className="rounded-full hover:bg-primary/10 hover:text-primary"
       >
         <ChevronRight className="h-4 w-4" />
       </Button>
