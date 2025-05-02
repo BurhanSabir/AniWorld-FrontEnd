@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/context/auth-context"
 import { AnimeCard } from "@/components/anime-card"
@@ -37,6 +37,15 @@ function AnimePageContent() {
   const { isAuthenticated } = useAuth()
   const isMobile = useMobile()
 
+  // Function to handle search from the SearchBar component
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchQuery(query)
+      setPage(1) // Reset to page 1 when searching
+    },
+    [setSearchQuery, setPage],
+  )
+
   useEffect(() => {
     const loadAnime = async () => {
       try {
@@ -44,7 +53,7 @@ function AnimePageContent() {
 
         // First, load featured anime (first 8 entries) for hero slider
         if (page === 1 && !searchQuery && Object.keys(filters).length === 0) {
-          const featuredResponse = await fetchAnimeList(searchQuery, filters, 1, 8, activeTab)
+          const featuredResponse = await fetchAnimeList("", filters, 1, 8, activeTab)
           setFeaturedAnime(featuredResponse.data)
         }
 
@@ -55,6 +64,7 @@ function AnimePageContent() {
 
         setInitialLoad(false)
       } catch (error) {
+        console.error("Error loading anime:", error)
         toast({
           title: "Error",
           description: "Failed to load anime list",
@@ -69,7 +79,7 @@ function AnimePageContent() {
     // Add a delay to prevent API calls on every keystroke
     const handler = setTimeout(() => {
       loadAnime()
-    }, 500)
+    }, 300)
 
     return () => {
       clearTimeout(handler)
@@ -109,7 +119,7 @@ function AnimePageContent() {
     return (
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {animeList.map((anime) => (
-          <AnimeCard key={anime.id} anime={anime} showAddToWatchlist={isAuthenticated} />
+          <AnimeCard key={anime.id} anime={anime} />
         ))}
       </div>
     )
@@ -124,6 +134,7 @@ function AnimePageContent() {
           placeholder="Search for anime titles..."
           routePrefix="/anime"
           className="max-w-2xl mx-auto"
+          onSearch={handleSearch}
         />
       </div>
 

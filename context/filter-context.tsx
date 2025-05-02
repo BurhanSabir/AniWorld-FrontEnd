@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 export type FilterValue = string | number | boolean | string[]
@@ -64,6 +64,7 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
   const [page, setPageState] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [isUpdatingUrl, setIsUpdatingUrl] = useState(false)
 
   // Initialize filters from URL on component mount
   useEffect(() => {
@@ -100,7 +101,7 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
 
   // Update URL when filters, search, or page change
   useEffect(() => {
-    if (!initialized) return
+    if (!initialized || isUpdatingUrl) return
 
     const params = new URLSearchParams()
 
@@ -127,42 +128,48 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
+    setIsUpdatingUrl(true)
     const queryString = params.toString()
     const url = pathname + (queryString ? `?${queryString}` : "")
     router.replace(url, { scroll: false })
-  }, [filters, searchQuery, page, pathname, router, initialized])
+
+    // Reset the flag after a short delay to prevent infinite loops
+    setTimeout(() => {
+      setIsUpdatingUrl(false)
+    }, 100)
+  }, [filters, searchQuery, page, pathname, router, initialized, isUpdatingUrl])
 
   // Set search query and reset to page 1
-  const setSearchQuery = (query: string) => {
+  const setSearchQuery = useCallback((query: string) => {
     setSearchQueryState(query)
     setPageState(1)
-  }
+  }, [])
 
   // Set a filter and reset to page 1
-  const setFilter = (key: string, value: FilterValue) => {
+  const setFilter = useCallback((key: string, value: FilterValue) => {
     setFilters((prev) => ({
       ...prev,
       [key]: value,
     }))
     setPageState(1)
-  }
+  }, [])
 
   // Set a staged filter (doesn't apply until applyFilters is called)
-  const setStagedFilter = (key: string, value: FilterValue) => {
+  const setStagedFilter = useCallback((key: string, value: FilterValue) => {
     setStagedFilters((prev) => ({
       ...prev,
       [key]: value,
     }))
-  }
+  }, [])
 
   // Apply staged filters and reset to page 1
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     setFilters(stagedFilters)
     setPageState(1)
-  }
+  }, [stagedFilters])
 
   // Clear all filters and reset to page 1
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setFilters({})
     setStagedFilters({})
     setPageState(1)
@@ -172,10 +179,10 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
     }
     // Force URL update to clear all parameters
     router.replace(pathname, { scroll: false })
-  }
+  }, [searchQuery, pathname, router])
 
   // Clear a specific filter and reset to page 1
-  const clearFilter = (key: string) => {
+  const clearFilter = useCallback((key: string) => {
     setFilters((prev) => {
       const newFilters = { ...prev }
       delete newFilters[key]
@@ -187,10 +194,10 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
       return newFilters
     })
     setPageState(1)
-  }
+  }, [])
 
   // Toggle a filter value (for checkboxes) and reset to page 1
-  const toggleFilter = (key: string, value: string) => {
+  const toggleFilter = useCallback((key: string, value: string) => {
     setFilters((prev) => {
       const currentValues = (prev[key] as string[]) || []
       const valueExists = currentValues.includes(value)
@@ -209,10 +216,10 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
       }
     })
     setPageState(1)
-  }
+  }, [])
 
   // Toggle a staged filter value (for checkboxes)
-  const toggleStagedFilter = (key: string, value: string) => {
+  const toggleStagedFilter = useCallback((key: string, value: string) => {
     setStagedFilters((prev) => {
       const currentValues = (prev[key] as string[]) || []
       const valueExists = currentValues.includes(value)
@@ -230,51 +237,63 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
         }
       }
     })
-  }
+  }, [])
 
   // Check if a filter is active
-  const isFilterActive = (key: string, value?: string): boolean => {
-    const filterValue = filters[key]
+  const isFilterActive = useCallback(
+    (key: string, value?: string): boolean => {
+      const filterValue = filters[key]
 
-    if (value === undefined) {
-      return filterValue !== undefined && !(Array.isArray(filterValue) && filterValue.length === 0)
-    }
+      if (value === undefined) {
+        return filterValue !== undefined && !(Array.isArray(filterValue) && filterValue.length === 0)
+      }
 
-    if (Array.isArray(filterValue)) {
-      return filterValue.includes(value)
-    }
+      if (Array.isArray(filterValue)) {
+        return filterValue.includes(value)
+      }
 
-    return filterValue === value
-  }
+      return filterValue === value
+    },
+    [filters],
+  )
 
   // Check if a staged filter is active
-  const isStagedFilterActive = (key: string, value?: string): boolean => {
-    const filterValue = stagedFilters[key]
+  const isStagedFilterActive = useCallback(
+    (key: string, value?: string): boolean => {
+      const filterValue = stagedFilters[key]
 
-    if (value === undefined) {
-      return filterValue !== undefined && !(Array.isArray(filterValue) && filterValue.length === 0)
-    }
+      if (value === undefined) {
+        return filterValue !== undefined && !(Array.isArray(filterValue) && filterValue.length === 0)
+      }
 
-    if (Array.isArray(filterValue)) {
-      return filterValue.includes(value)
-    }
+      if (Array.isArray(filterValue)) {
+        return filterValue.includes(value)
+      }
 
-    return filterValue === value
-  }
+      return filterValue === value
+    },
+    [stagedFilters],
+  )
 
   // Get the count of selected values for a filter
-  const getSelectedCount = (key: string): number => {
-    const value = filters[key]
-    if (!value) return 0
-    return Array.isArray(value) ? value.length : 1
-  }
+  const getSelectedCount = useCallback(
+    (key: string): number => {
+      const value = filters[key]
+      if (!value) return 0
+      return Array.isArray(value) ? value.length : 1
+    },
+    [filters],
+  )
 
   // Get the count of selected values for a staged filter
-  const getStagedSelectedCount = (key: string): number => {
-    const value = stagedFilters[key]
-    if (!value) return 0
-    return Array.isArray(value) ? value.length : 1
-  }
+  const getStagedSelectedCount = useCallback(
+    (key: string): number => {
+      const value = stagedFilters[key]
+      if (!value) return 0
+      return Array.isArray(value) ? value.length : 1
+    },
+    [stagedFilters],
+  )
 
   // Get the total count of selected filters
   const totalSelectedFilters = Object.keys(filters).reduce((count, key) => {
@@ -287,9 +306,9 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
   }, 0)
 
   // Set the current page
-  const setPage = (newPage: number) => {
+  const setPage = useCallback((newPage: number) => {
     setPageState(newPage)
-  }
+  }, [])
 
   return (
     <FilterContext.Provider

@@ -81,7 +81,7 @@ export function MangaCard({
     if (!token) {
       toast({
         title: "Login Required",
-        description: "Please log in to add to your watchlist",
+        description: "Please log in to add to your collection",
         variant: "destructive",
       })
       return
@@ -93,13 +93,13 @@ export function MangaCard({
         await removeFromWatchlist(manga.id, token, "manga")
         setIsInWatchlist(false)
         toast({
-          description: "Removed from your watchlist",
+          description: "Removed from your collection",
         })
       } else {
         await addToWatchlist(manga.id, token, "manga")
         setIsInWatchlist(true)
         toast({
-          description: "Added to your watchlist",
+          description: "Added to your collection",
         })
       }
 
@@ -109,7 +109,7 @@ export function MangaCard({
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update watchlist",
+        description: "Failed to update collection",
         variant: "destructive",
       })
     } finally {
@@ -158,7 +158,10 @@ export function MangaCard({
             </div>
 
             <div className="flex gap-3">
-              <Button asChild className="bg-primary hover:bg-primary/90">
+              <Button
+                asChild
+                className="bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+              >
                 <Link href={`/manga/${manga.id}`}>
                   <BookOpen className="h-4 w-4 mr-2" />
                   Read Now
@@ -187,9 +190,10 @@ export function MangaCard({
   }
 
   return (
-    <div className={cn("anime-card group carousel-item", featured && "featured-card")}>
+    <div className="anime-card group relative">
       <Link href={`/manga/${manga.id}`} className="block">
-        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-t-xl">
+        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl">
+          {/* Loading state */}
           <div
             className={cn(
               "absolute inset-0 bg-muted/50 flex items-center justify-center transition-opacity",
@@ -198,6 +202,8 @@ export function MangaCard({
           >
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
           </div>
+
+          {/* Image */}
           <Image
             src={manga.coverImage || "/placeholder.svg?height=300&width=200"}
             alt={manga.title}
@@ -206,6 +212,8 @@ export function MangaCard({
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
             onLoad={() => setImageLoaded(true)}
           />
+
+          {/* Score badge */}
           {manga.score && (
             <div className="absolute right-2 top-2 flex items-center rounded-full bg-black/70 px-2 py-1 text-xs text-white z-10">
               <Star className="mr-1 h-3 w-3 fill-yellow-400 text-yellow-400" />
@@ -213,20 +221,31 @@ export function MangaCard({
             </div>
           )}
 
-          {/* Quick add to watchlist button */}
+          {/* Watchlist heart icon */}
           {isAuthenticated && (
             <button
               onClick={(e) => handleWatchlistToggle(e)}
               disabled={isLoading || isCheckingWatchlist}
-              className="absolute left-2 top-2 rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50 z-10"
+              className={cn(
+                "absolute left-2 top-2 rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50 z-20",
+                isLoading && "animate-pulse",
+              )}
               aria-label={isInWatchlist ? "Remove from collection" : "Add to collection"}
             >
               <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
             </button>
           )}
 
-          <div className="anime-card-overlay">
-            <h3 className="font-bold text-white mb-1">{manga.title}</h3>
+          {/* User rating indicator */}
+          {userRating && (
+            <div className="absolute bottom-2 left-2 flex items-center bg-black/70 rounded-full px-2 py-1 z-10">
+              <StarRating initialRating={userRating} readOnly size="sm" />
+            </div>
+          )}
+
+          {/* Dark overlay with title and info on hover */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-300 flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 z-10">
+            <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2 mb-1">{manga.title}</h3>
             <div className="flex flex-wrap gap-1 mb-2">
               {manga.genres?.slice(0, 2).map((genre) => (
                 <Badge key={genre} variant="secondary" className="text-xs bg-black/50">
@@ -237,50 +256,14 @@ export function MangaCard({
             <Button
               size="sm"
               variant="secondary"
-              className="w-full mt-auto group-hover:bg-primary group-hover:text-white"
+              className="w-full mt-auto bg-white/20 hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 hover:text-white text-white transition-all duration-300"
             >
               <Info className="h-3 w-3 mr-1" />
               View Details
             </Button>
           </div>
         </div>
-
-        {/* User rating indicator */}
-        {userRating && (
-          <div className="absolute bottom-2 left-2 flex items-center bg-black/70 rounded-full px-2 py-1 z-10">
-            <StarRating initialRating={userRating} readOnly size="sm" />
-          </div>
-        )}
       </Link>
-
-      {showAddToWatchlist && (
-        <div className="p-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn("w-full", isInWatchlist && "bg-primary/10 border-primary/50 text-primary")}
-            onClick={() => handleWatchlistToggle()}
-            disabled={isLoading}
-          >
-            {isInWatchlist ? (
-              <>
-                <Heart className="mr-2 h-4 w-4 fill-primary" />
-                In Collection
-              </>
-            ) : (
-              <>
-                <Heart className="mr-2 h-4 w-4" />
-                Add to Collection
-              </>
-            )}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
-
-// Helper function to conditionally join class names
-// const cn = (...classes: (string | boolean | undefined)[]) => {
-//   return classes.filter(Boolean).join(" ")
-// }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FilterProvider, useFilters } from "@/context/filter-context"
 import { SimplifiedFilterSidebar } from "@/components/simplified-filter-sidebar"
@@ -37,6 +37,15 @@ function MangaPageContent() {
   const { isAuthenticated } = useAuth()
   const isMobile = useMobile()
 
+  // Function to handle search from the SearchBar component
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchQuery(query)
+      setPage(1) // Reset to page 1 when searching
+    },
+    [setSearchQuery, setPage],
+  )
+
   useEffect(() => {
     const loadManga = async () => {
       try {
@@ -44,7 +53,7 @@ function MangaPageContent() {
 
         // First, load featured manga for hero slider
         if (page === 1 && !searchQuery && Object.keys(filters).length === 0) {
-          const featuredResponse = await fetchMangaList(searchQuery, filters, 1, 8, activeTab)
+          const featuredResponse = await fetchMangaList("", filters, 1, 8, activeTab)
           setFeaturedManga(featuredResponse.data)
         }
 
@@ -55,6 +64,7 @@ function MangaPageContent() {
 
         setInitialLoad(false)
       } catch (error) {
+        console.error("Error loading manga:", error)
         toast({
           title: "Error",
           description: "Failed to load manga list",
@@ -69,7 +79,7 @@ function MangaPageContent() {
     // Add a delay to prevent API calls on every keystroke
     const handler = setTimeout(() => {
       loadManga()
-    }, 500)
+    }, 300)
 
     return () => {
       clearTimeout(handler)
@@ -109,7 +119,7 @@ function MangaPageContent() {
     return (
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {mangaList.map((manga) => (
-          <MangaCard key={manga.id} manga={manga} showAddToWatchlist={isAuthenticated} />
+          <MangaCard key={manga.id} manga={manga} />
         ))}
       </div>
     )
@@ -124,6 +134,7 @@ function MangaPageContent() {
           placeholder="Search for manga titles..."
           routePrefix="/manga"
           className="max-w-2xl mx-auto"
+          onSearch={handleSearch}
         />
       </div>
 

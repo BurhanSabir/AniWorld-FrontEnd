@@ -76,7 +76,9 @@ export function Navbar() {
             <div className="flex flex-col h-full">
               <div className="p-4 border-b border-border/40">
                 <Link href="/" className="flex items-center">
-                  <span className="text-xl font-bold text-gradient">AniWorld</span>
+                  <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-pink-500">
+                    AniWorld
+                  </span>
                 </Link>
               </div>
               <div className="flex flex-col gap-1 p-4">
@@ -142,7 +144,9 @@ export function Navbar() {
 
         {/* Logo */}
         <Link href="/" className="flex items-center mr-6">
-          <span className="text-xl font-bold text-gradient">AniWorld</span>
+          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-pink-500">
+            AniWorld
+          </span>
         </Link>
 
         {/* Main Navigation */}
@@ -221,7 +225,11 @@ export function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button asChild size="sm" className="bg-gradient hover:opacity-90">
+            <Button
+              asChild
+              size="sm"
+              className="bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+            >
               <Link href="/login">Login</Link>
             </Button>
           )}

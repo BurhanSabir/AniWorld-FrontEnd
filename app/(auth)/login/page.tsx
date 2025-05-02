@@ -145,7 +145,11 @@ export default function LoginPage() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full bg-gradient hover:opacity-90" disabled={isButtonDisabled}>
+            <Button
+              type="submit"
+              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+              disabled={isButtonDisabled}
+            >
               {getButtonText()}
             </Button>
             <div className="text-center text-sm">
