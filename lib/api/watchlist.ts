@@ -1,64 +1,10 @@
 import { getSupabaseClient } from "@/lib/supabase/client"
-import type { Anime, Manga } from "@/types/anime"
 
-// Fetch user's watchlist
-export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise<Anime[] | Manga[]> {
-  const supabase = getSupabaseClient()
+// Get the Supabase client once at the module level
+const supabase = getSupabaseClient()
 
+export async function addToWatchlist(mediaId: number, token: string, mediaType: "anime" | "manga") {
   try {
-    // Get the user's watchlist items
-    const { data: watchlistItems, error } = await supabase
-      .from("watchlists")
-      .select("id, item_id, created_at")
-      .eq("item_type", type)
-      .order("created_at", { ascending: false })
-
-    if (error) throw error
-
-    if (!watchlistItems || watchlistItems.length === 0) {
-      return []
-    }
-
-    // Get the item details from the respective table
-    const itemIds = watchlistItems.map((item) => item.item_id)
-    const { data: items, error: itemsError } = await supabase.from(type).select("*").in("id", itemIds)
-
-    if (itemsError) throw itemsError
-
-    // If we don't have the items in our database, fetch them from the API
-    if (!items || items.length === 0) {
-      // For demo purposes, we'll return an empty array
-      // In a real app, you might want to fetch the items from an external API
-      return []
-    }
-
-    // Transform the data to match our frontend types
-    return items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      coverImage: item.cover_image,
-      genres: item.genres,
-      score: item.score?.toString(),
-      status: item.status,
-      ...(type === "anime"
-        ? { episodes: item.episodes, year: item.year }
-        : { chapters: item.chapters, volumes: item.volumes, year: item.year }),
-    }))
-  } catch (error) {
-    console.error(`Error fetching ${type} watchlist:`, error)
-    throw error
-  }
-}
-
-// Add an item to the watchlist
-export async function addToWatchlist(mediaId: number, token: string, type: "anime" | "manga" = "anime"): Promise<void> {
-  if (!token) {
-    throw new Error("Authentication token is required")
-  }
-
-  try {
-    const supabase = getSupabaseClient()
-
     // Get user ID from session
     const {
       data: { user },
@@ -68,35 +14,23 @@ export async function addToWatchlist(mediaId: number, token: string, type: "anim
       throw new Error("User not found")
     }
 
-    const { error } = await supabase.from("watchlist").insert({
+    const { data, error } = await supabase.from("watchlist").insert({
       user_id: user.id,
       media_id: mediaId,
-      media_type: type,
+      media_type: mediaType,
       added_at: new Date().toISOString(),
     })
 
-    if (error) {
-      throw error
-    }
+    if (error) throw error
+    return { success: true, data }
   } catch (error) {
     console.error("Error adding to watchlist:", error)
-    throw error
+    return { success: false, error }
   }
 }
 
-// Remove an item from the watchlist
-export async function removeFromWatchlist(
-  mediaId: number,
-  token: string,
-  type: "anime" | "manga" = "anime",
-): Promise<void> {
-  if (!token) {
-    throw new Error("Authentication token is required")
-  }
-
+export async function removeFromWatchlist(mediaId: number, token: string, mediaType: "anime" | "manga") {
   try {
-    const supabase = getSupabaseClient()
-
     // Get user ID from session
     const {
       data: { user },
@@ -106,43 +40,43 @@ export async function removeFromWatchlist(
       throw new Error("User not found")
     }
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("watchlist")
       .delete()
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId)
-      .eq("media_type", type)
+      .match({ user_id: user.id, media_id: mediaId, media_type: mediaType })
 
-    if (error) {
-      throw error
-    }
+    if (error) throw error
+    return { success: true, data }
   } catch (error) {
     console.error("Error removing from watchlist:", error)
-    throw error
+    return { success: false, error }
   }
 }
 
-// Check if an item is in the watchlist
 export async function checkInWatchlist(
   mediaId: number,
   token: string,
-  type: "anime" | "manga" = "anime",
+  mediaType: "anime" | "manga" = "anime",
 ): Promise<boolean> {
-  if (!token) {
-    return false
-  }
-
   try {
     const supabase = getSupabaseClient()
 
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return false
+    }
+
     const { data, error } = await supabase
       .from("watchlist")
-      .select("id")
-      .eq("media_id", mediaId)
-      .eq("media_type", type)
-      .single()
+      .select("*")
+      .match({ user_id: user.id, media_id: mediaId, media_type: mediaType })
+      .maybeSingle()
 
-    if (error && error.code !== "PGRST116") {
+    if (error) {
       console.error("Error checking watchlist:", error)
       return false
     }
@@ -154,24 +88,27 @@ export async function checkInWatchlist(
   }
 }
 
-// Get watchlist count
-export async function getWatchlistCount(type?: "anime" | "manga"): Promise<number> {
-  const supabase = getSupabaseClient()
-
+export async function fetchWatchlist(mediaType: "anime" | "manga", token?: string) {
   try {
-    let query = supabase.from("watchlists").select("id", { count: "exact" })
+    const supabase = getSupabaseClient()
 
-    if (type) {
-      query = query.eq("item_type", type)
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return []
     }
 
-    const { count, error } = await query
+    const query = supabase.from("watchlist").select("*").eq("user_id", user.id).eq("media_type", mediaType)
+
+    const { data, error } = await query.order("added_at", { ascending: false })
 
     if (error) throw error
-
-    return count || 0
+    return data || []
   } catch (error) {
-    console.error("Error getting watchlist count:", error)
-    return 0
+    console.error("Error getting watchlist:", error)
+    return []
   }
 }

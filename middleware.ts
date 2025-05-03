@@ -6,6 +6,7 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
 
   // Create a Supabase client configured to use cookies
+  // This is per-request, so we don't need to use our singleton pattern here
   const supabase = createMiddlewareClient({ req, res })
 
   // Refresh session if expired - required for Server Components

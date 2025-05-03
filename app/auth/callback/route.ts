@@ -9,6 +9,7 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = cookies()
+    // This is per-request, so we don't need to use our singleton pattern here
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
 
     // Exchange the code for a session

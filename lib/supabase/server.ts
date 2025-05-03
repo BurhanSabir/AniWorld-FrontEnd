@@ -1,7 +1,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
 
-// Create a Supabase client for server-side usage
+// We don't need to cache the server client as it's created per request
 export const getSupabaseServer = () => {
   return createServerComponentClient({ cookies })
 }

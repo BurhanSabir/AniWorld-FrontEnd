@@ -16,7 +16,7 @@ interface UserProfile {
 interface AuthContextType {
   user: UserProfile | null
   isAuthenticated: boolean
-  token: string | null // Add this line
+  token: string | null
   login: (email: string, password: string) => Promise<void>
   signup: (name: string, email: string, password: string) => Promise<any>
   logout: () => Promise<void>
@@ -27,12 +27,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Get the Supabase client once at the module level
+const supabase = getSupabaseClient()
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [authLoading, setAuthLoading] = useState(false)
-  const supabase = getSupabaseClient()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -369,7 +371,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
-        token, // Add this line
+        token,
         login,
         signup,
         logout,

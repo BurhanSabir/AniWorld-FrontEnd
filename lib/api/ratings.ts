@@ -8,78 +8,156 @@ interface RatingResponse {
   averageRating?: string
 }
 
-// Rate an anime or manga
-export async function rateItem(
-  itemId: number,
-  rating: number,
-  type: "anime" | "manga" = "anime",
-): Promise<RatingResponse> {
-  const supabase = getSupabaseClient()
+// Get the Supabase client once at the module level
+const supabase = getSupabaseClient()
 
+export async function rateMedia(mediaId: number, mediaType: "ANIME" | "MANGA", userId: string, rating: number) {
   try {
-    // Check if the user has already rated this item
+    // Check if the user has already rated this media
     const { data: existingRating } = await supabase
       .from("ratings")
-      .select("id, rating")
-      .eq("item_id", itemId)
-      .eq("item_type", type)
+      .select("*")
+      .match({ user_id: userId, media_id: mediaId, media_type: mediaType })
       .single()
 
     let result
 
     if (existingRating) {
-      // Update the existing rating
+      // Update existing rating
       result = await supabase
         .from("ratings")
         .update({
           rating,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", existingRating.id)
+        .match({ user_id: userId, media_id: mediaId, media_type: mediaType })
     } else {
-      // Insert a new rating
+      // Insert new rating
       result = await supabase.from("ratings").insert({
-        item_id: itemId,
-        item_type: type,
+        user_id: userId,
+        media_id: mediaId,
+        media_type: mediaType,
         rating,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
     }
 
     if (result.error) throw result.error
-
-    // Calculate the new average rating
-    const { data: avgData, error: avgError } = await supabase
-      .from("ratings")
-      .select("rating")
-      .eq("item_id", itemId)
-      .eq("item_type", type)
-
-    if (avgError) throw avgError
-
-    let averageRating = "0.0"
-
-    if (avgData && avgData.length > 0) {
-      const sum = avgData.reduce((acc, curr) => acc + curr.rating, 0)
-      averageRating = (sum / avgData.length).toFixed(1)
-
-      // Update the average score in the item table
-      await supabase.from(type).update({ average_score: averageRating }).eq("id", itemId)
-    }
-
-    return {
-      success: true,
-      message: "Rating submitted successfully",
-      rating,
-      averageRating,
-    }
+    return { success: true, data: result.data }
   } catch (error) {
-    console.error(`Error rating ${type}:`, error)
-    return {
-      success: false,
-      message: `Failed to submit rating: ${error.message}`,
-    }
+    console.error("Error rating media:", error)
+    return { success: false, error }
   }
 }
+
+export async function getUserRating(mediaId: number, mediaType: "ANIME" | "MANGA", userId: string) {
+  try {
+    const { data, error } = await supabase
+      .from("ratings")
+      .select("rating")
+      .match({ user_id: userId, media_id: mediaId, media_type: mediaType })
+      .single()
+
+    if (error && error.code !== "PGRST116") throw error // PGRST116 is the error code for no rows returned
+
+    return { success: true, rating: data?.rating || 0 }
+  } catch (error) {
+    console.error("Error getting user rating:", error)
+    return { success: false, rating: 0, error }
+  }
+}
+
+export async function getUserRatings(userId: string, mediaType?: "ANIME" | "MANGA") {
+  try {
+    let query = supabase.from("ratings").select("*").eq("user_id", userId)
+
+    if (mediaType) {
+      query = query.eq("media_type", mediaType)
+    }
+
+    const { data, error } = await query.order("updated_at", { ascending: false })
+
+    if (error) throw error
+    return { success: true, data }
+  } catch (error) {
+    console.error("Error getting user ratings:", error)
+    return { success: false, data: [], error }
+  }
+}
+
+// Rate an anime or manga
+// export async function rateItem(
+//   itemId: number,
+//   rating: number,
+//   type: "anime" | "manga" = "anime",
+// ): Promise<RatingResponse> {
+//   const supabase = getSupabaseClient()
+
+//   try {
+//     // Check if the user has already rated this item
+//     const { data: existingRating } = await supabase
+//       .from("ratings")
+//       .select("id, rating")
+//       .eq("item_id", itemId)
+//       .eq("item_type", type)
+//       .single()
+
+//     let result
+
+//     if (existingRating) {
+//       // Update the existing rating
+//       result = await supabase
+//         .from("ratings")
+//         .update({
+//           rating,
+//           updated_at: new Date().toISOString(),
+//         })
+//         .eq("id", existingRating.id)
+//     } else {
+//       // Insert a new rating
+//       result = await supabase.from("ratings").insert({
+//         item_id: itemId,
+//         item_type: type,
+//         rating,
+//       })
+//     }
+
+//     if (result.error) throw result.error
+
+//     // Calculate the new average rating
+//     const { data: avgData, error: avgError } = await supabase
+//       .from("ratings")
+//       .select("rating")
+//       .eq("item_id", itemId)
+//       .eq("item_type", type)
+
+//     if (avgError) throw avgError
+
+//     let averageRating = "0.0"
+
+//     if (avgData && avgData.length > 0) {
+//       const sum = avgData.reduce((acc, curr) => acc + curr.rating, 0)
+//       averageRating = (sum / avgData.length).toFixed(1)
+
+//       // Update the average score in the item table
+//       await supabase.from(type).update({ average_score: averageRating }).eq("id", itemId)
+//     }
+
+//     return {
+//       success: true,
+//       message: "Rating submitted successfully",
+//       rating,
+//       averageRating,
+//     }
+//   } catch (error) {
+//     console.error(`Error rating ${type}:`, error)
+//     return {
+//       success: false,
+//       message: `Failed to submit rating: ${error.message}`,
+//     }
+//   }
+// }
 
 // Alias functions for backward compatibility
 // export const rateAnime = (animeId: number, rating: number) => rateItem(animeId, rating, "anime")
@@ -87,32 +165,32 @@ export async function rateItem(
 // export const rateManga = (mangaId: number, rating: number) => rateItem(mangaId, rating, "manga")
 
 // Get a user's rating for an item
-export async function getUserRating(itemId: number, type: "anime" | "manga" = "anime"): Promise<number | null> {
-  const supabase = getSupabaseClient()
+// export async function getUserRating(itemId: number, type: "anime" | "manga" = "anime"): Promise<number | null> {
+//   const supabase = getSupabaseClient()
 
-  try {
-    const { data, error } = await supabase
-      .from("ratings")
-      .select("rating")
-      .eq("item_id", itemId)
-      .eq("item_type", type)
-      .single()
+//   try {
+//     const { data, error } = await supabase
+//       .from("ratings")
+//       .select("rating")
+//       .eq("item_id", itemId)
+//       .eq("item_type", type)
+//       .single()
 
-    if (error) {
-      // If the error is because the rating is not found, return null
-      if (error.code === "PGRST116") {
-        // Not found
-        return null
-      }
-      throw error
-    }
+//     if (error) {
+//       // If the error is because the rating is not found, return null
+//       if (error.code === "PGRST116") {
+//         // Not found
+//         return null
+//       }
+//       throw error
+//     }
 
-    return data.rating
-  } catch (error) {
-    console.error(`Error getting user ${type} rating:`, error)
-    return null
-  }
-}
+//     return data.rating
+//   } catch (error) {
+//     console.error(`Error getting user ${type} rating:`, error)
+//     return null
+//   }
+// }
 
 // Alias functions for backward compatibility
 // export const getUserAnimeRating = (animeId: number) => getUserRating(animeId, "anime")

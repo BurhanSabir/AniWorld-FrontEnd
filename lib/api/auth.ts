@@ -1,70 +1,108 @@
-// This file contains API calls for authentication
-// In a real app, these would call your Rails backend
+import { getSupabaseClient } from "@/lib/supabase/client"
 
-interface LoginResponse {
-  token: string
-  user: {
-    id: number
-    name: string
-    email: string
+// Get the Supabase client once at the module level
+const supabase = getSupabaseClient()
+
+export async function signUp(email: string, password: string, metadata = {}) {
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: metadata,
+      },
+    })
+
+    if (error) throw error
+
+    return { success: true, data }
+  } catch (error) {
+    console.error("Error signing up:", error)
+    return { success: false, error }
   }
 }
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/login`, {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ email, password }),
-  // }).then(res => res.json())
-
-  // For demo purposes, we'll simulate a successful login
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        token: "fake-jwt-token",
-        user: {
-          id: 1,
-          name: "Demo User",
-          email: email,
-        },
-      })
-    }, 500)
-  })
-}
-
-export async function signup(name: string, email: string, password: string): Promise<LoginResponse> {
-  // In a real app, this would be a fetch call to your Rails API
-  // return fetch(`${process.env.NEXT_PUBLIC_API_URL}/signup`, {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify({ name, email, password }),
-  // }).then(res => res.json())
-
-  // For demo purposes, we'll simulate a successful signup
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        token: "fake-jwt-token",
-        user: {
-          id: 1,
-          name: name,
-          email: email,
-        },
-      })
-    }, 500)
-  })
-}
-
-export async function signIn(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+export async function signIn(email: string, password: string) {
   try {
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-    // Simulate successful login
+    if (error) throw error
+
+    return { success: true, data }
+  } catch (error) {
+    console.error("Error signing in:", error)
+    return { success: false, error }
+  }
+}
+
+export async function signOut() {
+  try {
+    const { error } = await supabase.auth.signOut()
+
+    if (error) throw error
+
     return { success: true }
-  } catch (error: any) {
-    console.error("Login failed:", error)
-    return { success: false, error: error.message || "Login failed" }
+  } catch (error) {
+    console.error("Error signing out:", error)
+    return { success: false, error }
+  }
+}
+
+export async function resetPassword(email: string) {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+
+    if (error) throw error
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error resetting password:", error)
+    return { success: false, error }
+  }
+}
+
+export async function updatePassword(password: string) {
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password,
+    })
+
+    if (error) throw error
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating password:", error)
+    return { success: false, error }
+  }
+}
+
+export async function getSession() {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+
+    if (error) throw error
+
+    return { success: true, session: data.session }
+  } catch (error) {
+    console.error("Error getting session:", error)
+    return { success: false, session: null, error }
+  }
+}
+
+export async function getUser() {
+  try {
+    const { data, error } = await supabase.auth.getUser()
+
+    if (error) throw error
+
+    return { success: true, user: data.user }
+  } catch (error) {
+    console.error("Error getting user:", error)
+    return { success: false, user: null, error }
   }
 }
