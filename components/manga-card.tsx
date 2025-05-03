@@ -292,5 +292,3 @@ export function MangaCard({
     </div>
   )
 }
-\
-## 4. Redesign the footer to be more appealing and eliminate duplicates:
