@@ -13,6 +13,7 @@ import { Heart, Star, Info, BookOpen } from "lucide-react"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserMangaRating } from "@/lib/api/ratings"
 import { StarRating } from "@/components/star-rating"
+import { SocialShareButton } from "@/components/social-share-button"
 import type { Manga } from "@/types/anime"
 import { cn } from "@/lib/utils"
 
@@ -120,6 +121,13 @@ export function MangaCard({
     }
   }
 
+  // Create the share URL for this manga
+  const shareUrl = `/manga/${manga.id}`
+  const shareTitle = `Check out ${manga.title} on AniWorld`
+  const shareDescription = manga.genres
+    ? `A ${manga.genres.slice(0, 3).join(", ")} manga with a score of ${manga.score}`
+    : ""
+
   if (featured) {
     return (
       <div className="relative w-full h-[400px] md:h-[500px] rounded-2xl overflow-hidden group">
@@ -185,6 +193,13 @@ export function MangaCard({
                   {isInWatchlist ? "In Collection" : "Add to Collection"}
                 </Button>
               )}
+
+              <SocialShareButton
+                title={shareTitle}
+                url={shareUrl}
+                description={shareDescription}
+                className="border-white/20 hover:bg-white/10"
+              />
             </div>
           </div>
         </div>
@@ -224,20 +239,26 @@ export function MangaCard({
             </div>
           )}
 
-          {/* Watchlist heart icon */}
-          {isAuthenticated && (
-            <button
-              onClick={(e) => handleWatchlistToggle(e)}
-              disabled={isLoading || isCheckingWatchlist}
-              className={cn(
-                "absolute left-2 top-2 rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50 z-20",
-                isLoading && "animate-pulse",
-              )}
-              aria-label={isInWatchlist ? "Remove from collection" : "Add to collection"}
-            >
-              <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
-            </button>
-          )}
+          {/* Action buttons */}
+          <div className="absolute left-2 top-2 flex gap-1 z-20">
+            {/* Watchlist heart icon */}
+            {isAuthenticated && (
+              <button
+                onClick={(e) => handleWatchlistToggle(e)}
+                disabled={isLoading || isCheckingWatchlist}
+                className={cn(
+                  "rounded-full bg-black/70 p-1.5 text-white transition-all hover:bg-black/90 disabled:opacity-50",
+                  isLoading && "animate-pulse",
+                )}
+                aria-label={isInWatchlist ? "Remove from collection" : "Add to collection"}
+              >
+                <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
+              </button>
+            )}
+
+            {/* Share button */}
+            <SocialShareButton title={shareTitle} url={shareUrl} description={shareDescription} iconOnly />
+          </div>
 
           {/* User rating indicator */}
           {userRating && (

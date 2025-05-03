@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Star, ArrowLeft, Users, Heart, Play } from "lucide-react"
+import { Star, ArrowLeft, Users, Heart, Play, Share2 } from "lucide-react"
 import { fetchAnimeDetails, fetchAnimeCharacters, type Character } from "@/lib/api/anilist"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserAnimeRating, rateAnime } from "@/lib/api/ratings"
@@ -17,6 +17,7 @@ import { StarRating } from "@/components/star-rating"
 import { RatingModal } from "@/components/rating-modal"
 import { CharacterCard } from "@/components/character-card"
 import { CharacterDetailDialog } from "@/components/character-detail-dialog"
+import { SocialShareDialog } from "@/components/social-share-dialog"
 import type { AnimeDetails } from "@/types/anime"
 
 export default function AnimeDetailsPage() {
@@ -197,6 +198,13 @@ export default function AnimeDetailsPage() {
     )
   }
 
+  // Create the share URL for the current anime
+  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/anime/${anime.id}` : `/anime/${anime.id}`
+  const shareTitle = anime.title
+  const shareDescription = anime.description
+    ? anime.description.replace(/<[^>]*>?/gm, "").substring(0, 150) + "..."
+    : ""
+
   return (
     <div className="space-y-8">
       <Button variant="ghost" onClick={() => router.back()} className="mb-4">
@@ -286,6 +294,18 @@ export default function AnimeDetailsPage() {
               <Star className="mr-2 h-4 w-4" />
               {userRating ? "Edit Rating" : "Rate This"}
             </Button>
+
+            <SocialShareDialog
+              title={shareTitle}
+              url={shareUrl}
+              description={shareDescription}
+              image={anime.coverImage}
+            >
+              <Button variant="outline" className="w-full">
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
+              </Button>
+            </SocialShareDialog>
           </div>
 
           {/* User's Rating */}

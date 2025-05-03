@@ -9,11 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Bookmark, BookmarkCheck, Calendar, Book, Star, ArrowLeft } from "lucide-react"
+import { Bookmark, BookmarkCheck, Calendar, Book, Star, ArrowLeft, Share2 } from "lucide-react"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserMangaRating, rateManga } from "@/lib/api/ratings"
 import { StarRating } from "@/components/star-rating"
 import { RatingModal } from "@/components/rating-modal"
+import { SocialShareDialog } from "@/components/social-share-dialog"
 import type { MangaDetails } from "@/types/anime"
 
 export default function MangaDetailsPage() {
@@ -168,6 +169,13 @@ export default function MangaDetailsPage() {
     )
   }
 
+  // Create the share URL for the current manga
+  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/manga/${manga.id}` : `/manga/${manga.id}`
+  const shareTitle = manga.title
+  const shareDescription = manga.description
+    ? manga.description.replace(/<[^>]*>?/gm, "").substring(0, 150) + "..."
+    : ""
+
   return (
     <div className="space-y-6">
       <Button variant="ghost" onClick={() => router.back()} className="mb-4">
@@ -217,6 +225,18 @@ export default function MangaDetailsPage() {
               <Star className="mr-2 h-4 w-4" />
               {userRating ? "Edit Rating" : "Rate This"}
             </Button>
+
+            <SocialShareDialog
+              title={shareTitle}
+              url={shareUrl}
+              description={shareDescription}
+              image={manga.coverImage}
+            >
+              <Button variant="outline" className="w-full">
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
+              </Button>
+            </SocialShareDialog>
           </div>
 
           {/* User's Rating */}
