@@ -82,9 +82,9 @@ export async function rateItem(
 }
 
 // Alias functions for backward compatibility
-export const rateAnime = (animeId: number, rating: number) => rateItem(animeId, rating, "anime")
+// export const rateAnime = (animeId: number, rating: number) => rateItem(animeId, rating, "anime")
 
-export const rateManga = (mangaId: number, rating: number) => rateItem(mangaId, rating, "manga")
+// export const rateManga = (mangaId: number, rating: number) => rateItem(mangaId, rating, "manga")
 
 // Get a user's rating for an item
 export async function getUserRating(itemId: number, type: "anime" | "manga" = "anime"): Promise<number | null> {
@@ -115,9 +115,9 @@ export async function getUserRating(itemId: number, type: "anime" | "manga" = "a
 }
 
 // Alias functions for backward compatibility
-export const getUserAnimeRating = (animeId: number) => getUserRating(animeId, "anime")
+// export const getUserAnimeRating = (animeId: number) => getUserRating(animeId, "anime")
 
-export const getUserMangaRating = (mangaId: number) => getUserRating(mangaId, "manga")
+// export const getUserMangaRating = (mangaId: number) => getUserRating(mangaId, "manga")
 
 // Fetch all ratings for the current user
 export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeRating[]> {
@@ -218,5 +218,211 @@ export async function deleteRating(ratingId: number): Promise<boolean> {
   } catch (error) {
     console.error("Error deleting rating:", error)
     return false
+  }
+}
+
+// Update the getUserAnimeRating function to handle authentication properly
+export async function getUserAnimeRating(animeId: number, token: string): Promise<number | null> {
+  if (!token) {
+    return null
+  }
+
+  try {
+    const supabase = getSupabaseClient()
+
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return null
+    }
+
+    const { data, error } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("user_id", user.id)
+      .eq("media_id", animeId)
+      .eq("media_type", "anime")
+      .single()
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Error fetching user anime rating:", error)
+      return null
+    }
+
+    return data?.rating || null
+  } catch (error) {
+    console.error("Error in getUserAnimeRating:", error)
+    return null
+  }
+}
+
+// Update the getUserMangaRating function to handle authentication properly
+export async function getUserMangaRating(mangaId: number, token: string): Promise<number | null> {
+  if (!token) {
+    return null
+  }
+
+  try {
+    const supabase = getSupabaseClient()
+
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return null
+    }
+
+    const { data, error } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("user_id", user.id)
+      .eq("media_id", mangaId)
+      .eq("media_type", "manga")
+      .single()
+
+    if (error && error.code !== "PGRST116") {
+      console.error("Error fetching user manga rating:", error)
+      return null
+    }
+
+    return data?.rating || null
+  } catch (error) {
+    console.error("Error in getUserMangaRating:", error)
+    return null
+  }
+}
+
+// Update the rateAnime function to handle authentication properly
+export async function rateAnime(animeId: number, rating: number, token: string): Promise<void> {
+  if (!token) {
+    throw new Error("Authentication token is required")
+  }
+
+  try {
+    const supabase = getSupabaseClient()
+
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      throw new Error("User not found")
+    }
+
+    // Check if rating already exists
+    const { data: existingRating, error: checkError } = await supabase
+      .from("ratings")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("media_id", animeId)
+      .eq("media_type", "anime")
+      .single()
+
+    if (checkError && checkError.code !== "PGRST116") {
+      throw checkError
+    }
+
+    if (existingRating) {
+      // Update existing rating
+      const { error } = await supabase
+        .from("ratings")
+        .update({
+          rating,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingRating.id)
+
+      if (error) {
+        throw error
+      }
+    } else {
+      // Insert new rating
+      const { error } = await supabase.from("ratings").insert({
+        user_id: user.id,
+        media_id: animeId,
+        media_type: "anime",
+        rating,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) {
+        throw error
+      }
+    }
+  } catch (error) {
+    console.error("Error rating anime:", error)
+    throw error
+  }
+}
+
+// Update the rateManga function to handle authentication properly
+export async function rateManga(mangaId: number, rating: number, token: string): Promise<void> {
+  if (!token) {
+    throw new Error("Authentication token is required")
+  }
+
+  try {
+    const supabase = getSupabaseClient()
+
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      throw new Error("User not found")
+    }
+
+    // Check if rating already exists
+    const { data: existingRating, error: checkError } = await supabase
+      .from("ratings")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("media_id", mangaId)
+      .eq("media_type", "manga")
+      .single()
+
+    if (checkError && checkError.code !== "PGRST116") {
+      throw checkError
+    }
+
+    if (existingRating) {
+      // Update existing rating
+      const { error } = await supabase
+        .from("ratings")
+        .update({
+          rating,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingRating.id)
+
+      if (error) {
+        throw error
+      }
+    } else {
+      // Insert new rating
+      const { error } = await supabase.from("ratings").insert({
+        user_id: user.id,
+        media_id: mangaId,
+        media_type: "manga",
+        rating,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) {
+        throw error
+      }
+    }
+  } catch (error) {
+    console.error("Error rating manga:", error)
+    throw error
   }
 }

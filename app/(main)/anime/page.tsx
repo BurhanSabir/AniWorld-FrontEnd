@@ -128,7 +128,7 @@ function AnimePageContent() {
   return (
     <div className="space-y-8">
       {/* Search Bar */}
-      <div className="my-6">
+      <div className="mb-6">
         <SearchBar
           initialQuery={searchQuery}
           placeholder="Search for anime titles..."

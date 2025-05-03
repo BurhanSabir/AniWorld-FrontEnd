@@ -1,6 +1,5 @@
 import { getSupabaseClient } from "@/lib/supabase/client"
 import type { Anime, Manga } from "@/types/anime"
-import { syncAnimeData } from "@/lib/api/sync"
 
 // Fetch user's watchlist
 export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise<Anime[] | Manga[]> {
@@ -52,82 +51,105 @@ export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise
 }
 
 // Add an item to the watchlist
-export async function addToWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<void> {
-  const supabase = getSupabaseClient()
+export async function addToWatchlist(mediaId: number, token: string, type: "anime" | "manga" = "anime"): Promise<void> {
+  if (!token) {
+    throw new Error("Authentication token is required")
+  }
 
   try {
-    // Check if the item exists in our database
-    const { data: existingItem } = await supabase.from(type).select("id").eq("id", itemId).single()
+    const supabase = getSupabaseClient()
 
-    // If the item doesn't exist in our database, sync it
-    if (!existingItem) {
-      if (type === "anime") {
-        await syncAnimeData(itemId)
-      } else {
-        // For manga, we would need a similar function
-        // This is simplified for the demo
-        // await syncMangaData(itemId)
-      }
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      throw new Error("User not found")
     }
 
-    // Add the item to the user's watchlist
-    const { error } = await supabase.from("watchlists").insert({
-      item_id: itemId,
-      item_type: type,
+    const { error } = await supabase.from("watchlist").insert({
+      user_id: user.id,
+      media_id: mediaId,
+      media_type: type,
+      added_at: new Date().toISOString(),
     })
 
     if (error) {
-      // If the error is because the item is already in the watchlist, we can ignore it
-      if (error.code === "23505") {
-        // Unique violation
-        return
-      }
       throw error
     }
   } catch (error) {
-    console.error(`Error adding ${type} to watchlist:`, error)
+    console.error("Error adding to watchlist:", error)
     throw error
   }
 }
 
 // Remove an item from the watchlist
-export async function removeFromWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<void> {
-  const supabase = getSupabaseClient()
+export async function removeFromWatchlist(
+  mediaId: number,
+  token: string,
+  type: "anime" | "manga" = "anime",
+): Promise<void> {
+  if (!token) {
+    throw new Error("Authentication token is required")
+  }
 
   try {
-    const { error } = await supabase.from("watchlists").delete().eq("item_id", itemId).eq("item_type", type)
+    const supabase = getSupabaseClient()
 
-    if (error) throw error
+    // Get user ID from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      throw new Error("User not found")
+    }
+
+    const { error } = await supabase
+      .from("watchlist")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("media_id", mediaId)
+      .eq("media_type", type)
+
+    if (error) {
+      throw error
+    }
   } catch (error) {
-    console.error(`Error removing ${type} from watchlist:`, error)
+    console.error("Error removing from watchlist:", error)
     throw error
   }
 }
 
 // Check if an item is in the watchlist
-export async function checkInWatchlist(itemId: number, type: "anime" | "manga" = "anime"): Promise<boolean> {
-  const supabase = getSupabaseClient()
+export async function checkInWatchlist(
+  mediaId: number,
+  token: string,
+  type: "anime" | "manga" = "anime",
+): Promise<boolean> {
+  if (!token) {
+    return false
+  }
 
   try {
+    const supabase = getSupabaseClient()
+
     const { data, error } = await supabase
-      .from("watchlists")
+      .from("watchlist")
       .select("id")
-      .eq("item_id", itemId)
-      .eq("item_type", type)
+      .eq("media_id", mediaId)
+      .eq("media_type", type)
       .single()
 
-    if (error) {
-      // If the error is because the item is not found, return false
-      if (error.code === "PGRST116") {
-        // Not found
-        return false
-      }
-      throw error
+    if (error && error.code !== "PGRST116") {
+      console.error("Error checking watchlist:", error)
+      return false
     }
 
     return !!data
   } catch (error) {
-    console.error(`Error checking if ${type} is in watchlist:`, error)
+    console.error("Error in checkInWatchlist:", error)
     return false
   }
 }

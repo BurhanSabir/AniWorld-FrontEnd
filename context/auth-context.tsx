@@ -16,6 +16,7 @@ interface UserProfile {
 interface AuthContextType {
   user: UserProfile | null
   isAuthenticated: boolean
+  token: string | null // Add this line
   login: (email: string, password: string) => Promise<void>
   signup: (name: string, email: string, password: string) => Promise<any>
   logout: () => Promise<void>
@@ -28,6 +29,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
+  const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [authLoading, setAuthLoading] = useState(false)
   const supabase = getSupabaseClient()
@@ -115,6 +117,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: sessionUser.email?.split("@")[0] || "User",
           avatar_url: sessionUser.user_metadata?.avatar_url,
         })
+      }
+
+      if (session?.access_token) {
+        setToken(session.access_token)
+      } else {
+        setToken(null)
       }
     } catch (error) {
       console.error("Error setting user from session:", error)
@@ -361,6 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
+        token, // Add this line
         login,
         signup,
         logout,

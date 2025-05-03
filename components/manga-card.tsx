@@ -67,8 +67,11 @@ export function MangaCard({
       }
     }
 
-    fetchUserRating()
-    checkWatchlist()
+    // Only run these checks if the user is authenticated and has a token
+    if (isAuthenticated && token) {
+      fetchUserRating()
+      checkWatchlist()
+    }
   }, [manga.id, isAuthenticated, token])
 
   const handleWatchlistToggle = async (e?: React.MouseEvent) => {
@@ -78,7 +81,7 @@ export function MangaCard({
       e.stopPropagation()
     }
 
-    if (!token) {
+    if (!isAuthenticated || !token) {
       toast({
         title: "Login Required",
         description: "Please log in to add to your collection",
@@ -245,7 +248,7 @@ export function MangaCard({
 
           {/* Dark overlay with title and info on hover */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-300 flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 z-10">
-            <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2 mb-1">{manga.title}</h3>
+            <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2 mb-1 pr-6">{manga.title}</h3>
             <div className="flex flex-wrap gap-1 mb-2">
               {manga.genres?.slice(0, 2).map((genre) => (
                 <Badge key={genre} variant="secondary" className="text-xs bg-black/50">

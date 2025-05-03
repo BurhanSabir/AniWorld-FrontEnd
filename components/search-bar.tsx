@@ -74,7 +74,7 @@ export function SearchBar({
   }
 
   return (
-    <form onSubmit={handleSearch} className={cn("w-full mt-2", className)}>
+    <form onSubmit={handleSearch} className={cn("w-full", className)}>
       <div className="relative max-w-2xl mx-auto">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
