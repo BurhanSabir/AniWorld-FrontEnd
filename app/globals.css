@@ -137,7 +137,7 @@
 
 /* Custom utility classes */
 .text-gradient {
-  background: linear-gradient(to right, #8b5cf6, #ec4899);
+  background: linear-gradient(to right, #f59e0b, #f97316);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -145,7 +145,7 @@
 }
 
 .bg-gradient {
-  background: linear-gradient(to right, #8b5cf6, #ec4899);
+  background: linear-gradient(to right, #f59e0b, #f97316);
 }
 
 .card-hover {
@@ -282,7 +282,6 @@
 }
 
 /* Enhanced animation for carousel items */
-
 .carousel-item:hover {
   transform: translateY(-5px);
   box-shadow: 0 10px 15px -3px hsl(var(--primary) / 0.2);
@@ -319,4 +318,90 @@
 .scrollbar-hide {
   -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
+}
+
+/* New styles for redesigned cards */
+.trending-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  transition: all 300ms ease;
+}
+
+.trending-card:hover {
+  transform: translateY(-5px);
+}
+
+.trending-card-number {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: bold;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  z-index: 20;
+}
+
+.trending-card-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.3), transparent);
+  z-index: 10;
+}
+
+.trending-card-content {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 1rem;
+  z-index: 20;
+}
+
+.trending-card-title {
+  font-weight: bold;
+  color: white;
+  margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trending-card-info {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.trending-card-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+}
+
+.trending-card-badge-tv {
+  background-color: rgba(245, 158, 11, 0.9);
+}
+
+.trending-card-badge-score {
+  background-color: rgba(124, 58, 237, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.trending-card-badge-episodes {
+  background-color: rgba(16, 185, 129, 0.9);
 }

@@ -1,17 +1,13 @@
 import type React from "react"
 import { Navbar } from "@/components/navbar"
-import { Toaster } from "@/components/ui/toaster"
+import { Footer } from "@/components/footer"
 
-export default function MainLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function MainLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex min-h-screen flex-col">
       <Navbar />
-      <main className="mx-auto max-w-6xl px-6 py-8 md:px-8 lg:px-10">{children}</main>
-      <Toaster />
+      <main className="flex-1 container py-8">{children}</main>
+      <Footer />
     </div>
   )
 }

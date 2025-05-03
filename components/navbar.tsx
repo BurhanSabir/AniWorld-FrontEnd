@@ -1,21 +1,42 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/auth-context"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Menu, User, Film, BookOpen, Bookmark, Star, LogOut, LogIn } from "lucide-react"
+import { Menu, User, Film, BookOpen, Bookmark, Star, LogOut, LogIn, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { WatchlistCount } from "@/components/watchlist-count"
 import { UserAvatar } from "@/components/user-avatar"
+import { Input } from "@/components/ui/input"
 
 export function Navbar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { isAuthenticated, user, logout } = useAuth()
   const [isScrolled, setIsScrolled] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Initialize search query from URL on component mount
+  useEffect(() => {
+    const query = searchParams.get("search") || ""
+    setSearchQuery(query)
+  }, [searchParams])
+
+  // Focus search input when mobile search is opened
+  useEffect(() => {
+    if (isMobileSearchOpen && searchInputRef.current) {
+      searchInputRef.current.focus()
+    }
+  }, [isMobileSearchOpen])
 
   const mainRoutes = [
     {
@@ -56,11 +77,39 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmedQuery = searchQuery.trim()
+
+    if (trimmedQuery) {
+      // Determine if we're on an anime or manga page to maintain context
+      const routePrefix = pathname.startsWith("/manga") ? "/manga" : "/anime"
+      router.push(`${routePrefix}?search=${encodeURIComponent(trimmedQuery)}`)
+    }
+
+    // On mobile, close the search after submitting
+    if (window.innerWidth < 768) {
+      setIsMobileSearchOpen(false)
+    }
+  }
+
+  const clearSearch = () => {
+    setSearchQuery("")
+    // Determine if we're on an anime or manga page to maintain context
+    const routePrefix = pathname.startsWith("/manga") ? "/manga" : "/anime"
+    router.push(routePrefix)
+
+    // Focus back on the input after clearing
+    if (searchInputRef.current) {
+      searchInputRef.current.focus()
+    }
+  }
+
   return (
     <header
       className={cn(
         "sticky top-0 z-50 w-full transition-all duration-300",
-        isScrolled ? "bg-background/90 backdrop-blur-md shadow-md" : "bg-transparent",
+        isScrolled ? "bg-background/90 backdrop-blur-md shadow-md" : "bg-background",
       )}
     >
       <div className="container flex h-16 items-center">
@@ -76,7 +125,7 @@ export function Navbar() {
             <div className="flex flex-col h-full">
               <div className="p-4 border-b border-border/40">
                 <Link href="/" className="flex items-center">
-                  <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-pink-500">
+                  <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-amber-500">
                     AniWorld
                   </span>
                 </Link>
@@ -144,7 +193,7 @@ export function Navbar() {
 
         {/* Logo */}
         <Link href="/" className="flex items-center mr-6">
-          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-pink-500">
+          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-amber-500">
             AniWorld
           </span>
         </Link>
@@ -165,8 +214,45 @@ export function Navbar() {
           ))}
         </nav>
 
+        {/* Search Bar - Desktop */}
+        <div className="hidden md:flex flex-1 mx-4">
+          <form onSubmit={handleSearch} className="w-full max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search anime..."
+                className="pl-9 pr-9 h-9 rounded-full border-border/50 bg-muted/50 focus-visible:ring-1 focus-visible:ring-primary/50"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                ref={searchInputRef}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={clearSearch}
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Clear search</span>
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        {/* Search Icon - Mobile */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden ml-auto mr-2"
+          onClick={() => setIsMobileSearchOpen(!isMobileSearchOpen)}
+        >
+          <Search className="h-5 w-5" />
+        </Button>
+
         {/* Right Side: User Navigation */}
-        <div className="flex items-center ml-auto space-x-1">
+        <div className="flex items-center space-x-1">
           {/* User Routes (Watchlist, Rated) */}
           <nav className="hidden md:flex md:items-center space-x-1 mr-2">
             {userRoutes.map((route) => (
@@ -228,13 +314,50 @@ export function Navbar() {
             <Button
               asChild
               size="sm"
-              className="bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+              className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
             >
               <Link href="/login">Login</Link>
             </Button>
           )}
         </div>
       </div>
+
+      {/* Mobile Search Bar - Expandable */}
+      {isMobileSearchOpen && (
+        <div className="md:hidden px-4 pb-3 animate-slide-in">
+          <form onSubmit={handleSearch} className="w-full">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search anime..."
+                className="pl-9 pr-9 h-9 rounded-full border-border/50 bg-muted/50 focus-visible:ring-1 focus-visible:ring-primary/50"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                ref={searchInputRef}
+                autoFocus
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={clearSearch}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsMobileSearchOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
     </header>
   )
 }

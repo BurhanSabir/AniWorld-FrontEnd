@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/context/auth-context"
 import { AnimeCard } from "@/components/anime-card"
@@ -9,16 +9,15 @@ import { SimplifiedFilterSidebar } from "@/components/simplified-filter-sidebar"
 import { NoResults } from "@/components/no-results"
 import { Pagination } from "@/components/pagination"
 import { MobilePagination } from "@/components/mobile-pagination"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { HeroSlider } from "@/components/hero-slider"
-import { SearchBar } from "@/components/search-bar"
 import { TrendingUp, FlameIcon as Fire, Calendar } from "lucide-react"
 import { fetchAnimeList, type TabType } from "@/lib/api/anilist"
 import { animeFilterGroups } from "@/lib/api/filter"
 import type { Anime } from "@/types/anime"
 import type { PageInfo } from "@/lib/api/anilist"
 import { useMobile } from "@/hooks/use-mobile"
+import { cn } from "@/lib/utils"
 
 function AnimePageContent() {
   const [animeList, setAnimeList] = useState<Anime[]>([])
@@ -36,15 +35,6 @@ function AnimePageContent() {
   const { toast } = useToast()
   const { isAuthenticated } = useAuth()
   const isMobile = useMobile()
-
-  // Function to handle search from the SearchBar component
-  const handleSearch = useCallback(
-    (query: string) => {
-      setSearchQuery(query)
-      setPage(1) // Reset to page 1 when searching
-    },
-    [setSearchQuery, setPage],
-  )
 
   useEffect(() => {
     const loadAnime = async () => {
@@ -92,8 +82,8 @@ function AnimePageContent() {
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  const handleTabChange = (value: string) => {
-    setActiveTab(value as TabType)
+  const handleTabChange = (value: TabType) => {
+    setActiveTab(value)
     setPage(1) // Reset to page 1 when changing tabs
   }
 
@@ -118,8 +108,8 @@ function AnimePageContent() {
 
     return (
       <div className="grid grid-cols-2 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-        {animeList.map((anime) => (
-          <AnimeCard key={anime.id} anime={anime} />
+        {animeList.map((anime, index) => (
+          <AnimeCard key={anime.id} anime={anime} index={page === 1 && index < 10 ? index : undefined} />
         ))}
       </div>
     )
@@ -127,48 +117,53 @@ function AnimePageContent() {
 
   return (
     <div className="space-y-8">
-      {/* Search Bar */}
-      <div className="mb-6">
-        <SearchBar
-          initialQuery={searchQuery}
-          placeholder="Search for anime titles..."
-          routePrefix="/anime"
-          className="max-w-2xl mx-auto"
-          onSearch={handleSearch}
-        />
-      </div>
-
       {/* Hero Slider - only show on first page with no search/filters */}
       {page === 1 && !searchQuery && Object.keys(filters).length === 0 && featuredAnime.length > 0 && (
         <HeroSlider animeList={featuredAnime} className="mb-12" />
       )}
 
       {/* Tabs and Content */}
-      <Tabs defaultValue="trending" onValueChange={handleTabChange} className="w-full">
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <TabsList className="bg-card/50 p-1 rounded-full">
-            <TabsTrigger
-              value="trending"
-              className="data-[state=active]:bg-primary data-[state=active]:text-white rounded-full"
+      <div className="container mx-auto px-4">
+        {/* Centered Tabs */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex bg-card/50 p-1 rounded-full">
+            <button
+              onClick={() => handleTabChange("trending")}
+              className={cn(
+                "px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                activeTab === "trending"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white"
+                  : "text-foreground hover:bg-muted",
+              )}
             >
-              <TrendingUp className="h-4 w-4 mr-2" />
+              <TrendingUp className="h-4 w-4 mr-2 inline-block" />
               Trending
-            </TabsTrigger>
-            <TabsTrigger
-              value="popular"
-              className="data-[state=active]:bg-primary data-[state=active]:text-white rounded-full"
+            </button>
+            <button
+              onClick={() => handleTabChange("popular")}
+              className={cn(
+                "px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                activeTab === "popular"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white"
+                  : "text-foreground hover:bg-muted",
+              )}
             >
-              <Fire className="h-4 w-4 mr-2" />
+              <Fire className="h-4 w-4 mr-2 inline-block" />
               Popular
-            </TabsTrigger>
-            <TabsTrigger
-              value="upcoming"
-              className="data-[state=active]:bg-primary data-[state=active]:text-white rounded-full"
+            </button>
+            <button
+              onClick={() => handleTabChange("upcoming")}
+              className={cn(
+                "px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                activeTab === "upcoming"
+                  ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white"
+                  : "text-foreground hover:bg-muted",
+              )}
             >
-              <Calendar className="h-4 w-4 mr-2" />
+              <Calendar className="h-4 w-4 mr-2 inline-block" />
               Upcoming
-            </TabsTrigger>
-          </TabsList>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-8">
@@ -176,17 +171,7 @@ function AnimePageContent() {
           <SimplifiedFilterSidebar filterGroups={animeFilterGroups} />
 
           <div>
-            <TabsContent value="trending" className="mt-0">
-              {renderAnimeList()}
-            </TabsContent>
-
-            <TabsContent value="popular" className="mt-0">
-              {renderAnimeList()}
-            </TabsContent>
-
-            <TabsContent value="upcoming" className="mt-0">
-              {renderAnimeList()}
-            </TabsContent>
+            {renderAnimeList()}
 
             {/* Pagination */}
             {animeList.length > 0 && (
@@ -214,7 +199,7 @@ function AnimePageContent() {
             )}
           </div>
         </div>
-      </Tabs>
+      </div>
     </div>
   )
 }

@@ -55,3 +55,16 @@ export async function signup(name: string, email: string, password: string): Pro
     }, 500)
   })
 }
+
+export async function signIn(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Simulate API call
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    // Simulate successful login
+    return { success: true }
+  } catch (error: any) {
+    console.error("Login failed:", error)
+    return { success: false, error: error.message || "Login failed" }
+  }
+}

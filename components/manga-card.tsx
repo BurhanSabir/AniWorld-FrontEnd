@@ -9,10 +9,9 @@ import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Heart, Star, Info, BookOpen } from "lucide-react"
+import { Heart, Star, BookOpen } from "lucide-react"
 import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserMangaRating } from "@/lib/api/ratings"
-import { StarRating } from "@/components/star-rating"
 import { SocialShareButton } from "@/components/social-share-button"
 import type { Manga } from "@/types/anime"
 import { cn } from "@/lib/utils"
@@ -23,6 +22,7 @@ interface MangaCardProps {
   inWatchlist?: boolean
   onWatchlistUpdated?: (mangaId: number, inWatchlist: boolean) => void
   featured?: boolean
+  index?: number
 }
 
 export function MangaCard({
@@ -31,6 +31,7 @@ export function MangaCard({
   inWatchlist = false,
   onWatchlistUpdated,
   featured = false,
+  index,
 }: MangaCardProps) {
   const [isInWatchlist, setIsInWatchlist] = useState(inWatchlist)
   const [isLoading, setIsLoading] = useState(false)
@@ -130,10 +131,10 @@ export function MangaCard({
 
   if (featured) {
     return (
-      <div className="relative w-full h-[400px] md:h-[500px] rounded-2xl overflow-hidden group">
+      <div className="relative w-full h-[400px] md:h-[500px] rounded-xl overflow-hidden group">
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent z-10"></div>
         <Image
-          src={manga.coverImage || "/placeholder.svg?height=500&width=1200"}
+          src={manga.coverImage || "/placeholder.svg?height=500&width=1200&query=manga"}
           alt={manga.title}
           fill
           className={cn("object-cover transition-all duration-700 group-hover:scale-105", !imageLoaded && "blur-sm")}
@@ -142,41 +143,31 @@ export function MangaCard({
         />
         <div className="absolute inset-0 z-20 flex flex-col justify-end p-6 md:p-10">
           <div className="animate-slide-in">
-            <div className="flex flex-wrap gap-2 mb-3">
+            <h1 className="text-3xl md:text-5xl font-bold mb-3 text-white">{manga.title}</h1>
+
+            <p className="text-sm md:text-base text-gray-200 mb-4 line-clamp-3 max-w-2xl">
+              {manga.description || "No description available."}
+            </p>
+
+            <div className="flex flex-wrap gap-2 mb-4">
               {manga.genres?.slice(0, 3).map((genre) => (
-                <Badge key={genre} variant="secondary" className="bg-primary/20 text-primary-foreground">
+                <Badge key={genre} variant="secondary" className="bg-black/30 text-white border border-white/20">
                   {genre}
                 </Badge>
               ))}
               {manga.status && (
-                <Badge variant="outline" className="border-primary/30 text-primary-foreground">
+                <Badge variant="outline" className="border-white/30 text-white">
                   {manga.status.replace(/_/g, " ")}
                 </Badge>
               )}
             </div>
 
-            <h2 className="text-2xl md:text-4xl font-bold mb-2 text-white">{manga.title}</h2>
-
-            <div className="flex items-center gap-3 mb-4">
-              {manga.score && (
-                <div className="flex items-center bg-black/50 px-2 py-1 rounded-full">
-                  <Star className="h-4 w-4 text-yellow-400 mr-1" />
-                  <span className="text-sm font-medium">{manga.score}</span>
-                </div>
-              )}
-              {manga.chapters && <div className="text-sm text-muted-foreground">{manga.chapters} chapters</div>}
-              {manga.year && <div className="text-sm text-muted-foreground">{manga.year}</div>}
-            </div>
-
             <div className="flex gap-3">
               <Button
                 asChild
-                className="bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
+                className="bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:opacity-90 transition-all duration-300 shadow-md hover:shadow-lg"
               >
-                <Link href={`/manga/${manga.id}`}>
-                  <BookOpen className="h-4 w-4 mr-2" />
-                  Read Now
-                </Link>
+                <Link href={`/manga/${manga.id}`}>Details</Link>
               </Button>
 
               {isAuthenticated && (
@@ -207,10 +198,18 @@ export function MangaCard({
     )
   }
 
+  // Regular card design
   return (
-    <div className="anime-card group relative">
+    <div className="group relative">
       <Link href={`/manga/${manga.id}`} className="block">
-        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl">
+        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg">
+          {/* Index number */}
+          {index !== undefined && (
+            <div className="absolute left-0 top-0 z-20 w-8 h-8 flex items-center justify-center text-sm font-bold bg-amber-500 text-white">
+              {String(index + 1).padStart(2, "0")}
+            </div>
+          )}
+
           {/* Loading state */}
           <div
             className={cn(
@@ -223,24 +222,53 @@ export function MangaCard({
 
           {/* Image */}
           <Image
-            src={manga.coverImage || "/placeholder.svg?height=300&width=200"}
+            src={manga.coverImage || "/placeholder.svg?height=600&width=400&query=manga"}
             alt={manga.title}
             fill
             className={cn("object-cover transition-all duration-500", imageLoaded ? "opacity-100" : "opacity-0")}
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             onLoad={() => setImageLoaded(true)}
           />
 
-          {/* Score badge */}
-          {manga.score && (
-            <div className="absolute right-2 top-2 flex items-center rounded-full bg-black/70 px-2 py-1 text-xs text-white z-10">
-              <Star className="mr-1 h-3 w-3 fill-yellow-400 text-yellow-400" />
-              {manga.score}
+          {/* Overlay gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-100 z-10"></div>
+
+          {/* Badges */}
+          <div className="absolute top-2 right-2 flex flex-wrap gap-1 z-20">
+            {manga.format && (
+              <Badge className="bg-amber-500/90 text-white text-xs font-bold border-none">{manga.format}</Badge>
+            )}
+
+            {manga.chapters && (
+              <Badge className="bg-emerald-600/90 text-white text-xs font-bold border-none">{manga.chapters} CH</Badge>
+            )}
+
+            {manga.score && (
+              <Badge className="bg-purple-600/90 text-white text-xs font-bold border-none flex items-center gap-1">
+                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                {manga.score}
+              </Badge>
+            )}
+          </div>
+
+          {/* Title and info at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 p-3 z-20">
+            <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2">{manga.title}</h3>
+
+            <div className="flex items-center gap-2 text-xs text-gray-300 mt-1">
+              {manga.year && <span>{manga.year}</span>}
+              {manga.status && <span>{manga.status.replace(/_/g, " ")}</span>}
+              {manga.volumes && (
+                <span className="flex items-center">
+                  <BookOpen className="h-3 w-3 mr-1" />
+                  {manga.volumes} vol
+                </span>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Action buttons */}
-          <div className="absolute left-2 top-2 flex gap-1 z-20">
+          <div className="absolute right-2 top-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
             {/* Watchlist heart icon */}
             {isAuthenticated && (
               <button
@@ -259,35 +287,10 @@ export function MangaCard({
             {/* Share button */}
             <SocialShareButton title={shareTitle} url={shareUrl} description={shareDescription} iconOnly />
           </div>
-
-          {/* User rating indicator */}
-          {userRating && (
-            <div className="absolute bottom-2 left-2 flex items-center bg-black/70 rounded-full px-2 py-1 z-10">
-              <StarRating initialRating={userRating} readOnly size="sm" />
-            </div>
-          )}
-
-          {/* Dark overlay with title and info on hover */}
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-300 flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 z-10">
-            <h3 className="font-bold text-white text-sm sm:text-base line-clamp-2 mb-1 pr-6">{manga.title}</h3>
-            <div className="flex flex-wrap gap-1 mb-2">
-              {manga.genres?.slice(0, 2).map((genre) => (
-                <Badge key={genre} variant="secondary" className="text-xs bg-black/50">
-                  {genre}
-                </Badge>
-              ))}
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full mt-auto bg-white/20 hover:bg-gradient-to-r hover:from-purple-500 hover:to-pink-500 hover:text-white text-white transition-all duration-300"
-            >
-              <Info className="h-3 w-3 mr-1" />
-              View Details
-            </Button>
-          </div>
         </div>
       </Link>
     </div>
   )
 }
+\
+## 4. Redesign the footer to be more appealing and eliminate duplicates:
