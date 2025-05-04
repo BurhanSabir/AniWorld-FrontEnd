@@ -9,8 +9,8 @@ import { useAuth } from "@/context/auth-context"
 import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Heart, Star, BookOpen } from "lucide-react"
-import { addToWatchlist, removeFromWatchlist, checkInWatchlist } from "@/lib/api/watchlist"
+import { Heart, Star, BookOpen, Loader2 } from "lucide-react"
+import { toggleWatchlistItem, checkInWatchlist } from "@/lib/api/watchlist"
 import { getUserMangaRating } from "@/lib/api/ratings"
 import { SocialShareButton } from "@/components/social-share-button"
 import type { Manga } from "@/types/anime"
@@ -38,15 +38,16 @@ export function MangaCard({
   const [isCheckingWatchlist, setIsCheckingWatchlist] = useState(false)
   const [userRating, setUserRating] = useState<number | null>(null)
   const [imageLoaded, setImageLoaded] = useState(false)
-  const { token, isAuthenticated } = useAuth()
+  const [error, setError] = useState<string | null>(null)
+  const { isAuthenticated } = useAuth()
   const { toast } = useToast()
 
   useEffect(() => {
     // Fetch user's rating for this manga if authenticated
     const fetchUserRating = async () => {
-      if (isAuthenticated && token) {
+      if (isAuthenticated) {
         try {
-          const rating = await getUserMangaRating(manga.id, token)
+          const rating = await getUserMangaRating(manga.id)
           setUserRating(rating)
         } catch (error) {
           console.error("Failed to fetch user rating:", error)
@@ -56,10 +57,10 @@ export function MangaCard({
 
     // Check if manga is in watchlist
     const checkWatchlist = async () => {
-      if (isAuthenticated && token) {
+      if (isAuthenticated) {
         try {
           setIsCheckingWatchlist(true)
-          const inWatchlist = await checkInWatchlist(manga.id, token, "manga")
+          const inWatchlist = await checkInWatchlist(manga.id, "manga")
           setIsInWatchlist(inWatchlist)
         } catch (error) {
           console.error("Failed to check watchlist status:", error)
@@ -69,12 +70,12 @@ export function MangaCard({
       }
     }
 
-    // Only run these checks if the user is authenticated and has a token
-    if (isAuthenticated && token) {
+    // Only run these checks if the user is authenticated
+    if (isAuthenticated) {
       fetchUserRating()
       checkWatchlist()
     }
-  }, [manga.id, isAuthenticated, token])
+  }, [manga.id, isAuthenticated])
 
   const handleWatchlistToggle = async (e?: React.MouseEvent) => {
     // If called from the heart icon, prevent navigation
@@ -83,7 +84,7 @@ export function MangaCard({
       e.stopPropagation()
     }
 
-    if (!isAuthenticated || !token) {
+    if (!isAuthenticated) {
       toast({
         title: "Login Required",
         description: "Please log in to add to your collection",
@@ -93,28 +94,34 @@ export function MangaCard({
     }
 
     setIsLoading(true)
-    try {
-      if (isInWatchlist) {
-        await removeFromWatchlist(manga.id, token, "manga")
-        setIsInWatchlist(false)
-        toast({
-          description: "Removed from your collection",
-        })
-      } else {
-        await addToWatchlist(manga.id, token, "manga")
-        setIsInWatchlist(true)
-        toast({
-          description: "Added to your collection",
-        })
-      }
+    setError(null)
 
-      if (onWatchlistUpdated) {
-        onWatchlistUpdated(manga.id, !isInWatchlist)
+    try {
+      const result = await toggleWatchlistItem(manga.id, "manga")
+
+      if (result.success) {
+        setIsInWatchlist(result.inWatchlist)
+        toast({
+          description:
+            result.message || (result.inWatchlist ? "Added to your collection" : "Removed from your collection"),
+        })
+
+        if (onWatchlistUpdated) {
+          onWatchlistUpdated(manga.id, result.inWatchlist)
+        }
+      } else {
+        setError(result.message || "Failed to update collection")
+        toast({
+          title: "Error",
+          description: result.message || "Failed to update collection",
+          variant: "destructive",
+        })
       }
-    } catch (error) {
+    } catch (error: any) {
+      setError(error.message || "An unexpected error occurred")
       toast({
         title: "Error",
-        description: "Failed to update collection",
+        description: error.message || "Failed to update collection",
         variant: "destructive",
       })
     } finally {
@@ -180,7 +187,11 @@ export function MangaCard({
                   onClick={handleWatchlistToggle}
                   disabled={isLoading || isCheckingWatchlist}
                 >
-                  <Heart className={cn("h-4 w-4 mr-2", isInWatchlist && "fill-primary text-primary")} />
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Heart className={cn("h-4 w-4 mr-2", isInWatchlist && "fill-primary text-primary")} />
+                  )}
                   {isInWatchlist ? "In Collection" : "Add to Collection"}
                 </Button>
               )}
@@ -280,7 +291,11 @@ export function MangaCard({
                 )}
                 aria-label={isInWatchlist ? "Remove from collection" : "Add to collection"}
               >
-                <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Heart className={cn("h-4 w-4 transition-colors", isInWatchlist && "fill-primary text-primary")} />
+                )}
               </button>
             )}
 

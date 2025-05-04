@@ -1,7 +1,11 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
-// We don't need to cache the server client as it's created per request
-export const getSupabaseServer = () => {
+/**
+ * Creates a new Supabase client for server components
+ * This should be called within server components or server actions
+ */
+export const getSupabaseServer = (): SupabaseClient => {
   return createServerComponentClient({ cookies })
 }

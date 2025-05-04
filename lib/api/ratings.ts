@@ -1,57 +1,63 @@
 import { getSupabaseClient } from "@/lib/supabase/client"
+import { DB_SCHEMA, tableExists } from "@/lib/supabase/schema"
 import type { AnimeRating } from "@/types/anime"
 
 // Get the Supabase client once at the module level
 const supabase = getSupabaseClient()
 
-interface RatingResponse {
-  success: boolean
-  message: string
-  rating?: number
-  averageRating?: string
-}
+// Cache for table existence check
+let ratingsTableExists: boolean | null = null
 
-// Check if the ratings table exists and create it if it doesn't
-async function ensureRatingsTable() {
+/**
+ * Ensures the ratings table exists before performing operations
+ * @returns A promise that resolves to a boolean indicating if the table exists
+ */
+async function ensureRatingsTable(): Promise<boolean> {
+  // Use cached value if available
+  if (ratingsTableExists !== null) {
+    return ratingsTableExists
+  }
+
   try {
-    // Check if the table exists by attempting to query it
-    const { error } = await supabase.from("ratings").select("count").limit(1)
-
-    if (error && error.message.includes("does not exist")) {
-      console.log("Creating ratings table...")
-      // Create the table using SQL - this requires admin privileges
-      // In a real app, you would handle this with migrations
-      // For now, we'll just log the error and provide guidance
-      console.error("Ratings table does not exist. Please create it with the following schema:")
-      console.error(`
-        CREATE TABLE public.ratings (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          user_id UUID REFERENCES auth.users(id) NOT NULL,
-          media_id INTEGER NOT NULL,
-          media_type TEXT NOT NULL,
-          rating INTEGER NOT NULL,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-          UNIQUE(user_id, media_id, media_type)
-        );
-      `)
-    }
-  } catch (err) {
-    console.error("Error checking/creating ratings table:", err)
+    ratingsTableExists = await tableExists(DB_SCHEMA.TABLES.RATINGS)
+    return ratingsTableExists
+  } catch (error) {
+    console.error("Error checking ratings table:", error)
+    return false
   }
 }
 
-// Initialize the database check
-ensureRatingsTable()
-
-// Rate an anime or manga with error handling for schema issues
+/**
+ * Rates a media item
+ * @param mediaId The ID of the media to rate
+ * @param mediaType The type of media (anime or manga)
+ * @param rating The rating to give (1-10)
+ * @returns A promise that resolves to an object with success status and optional error message
+ */
 export async function rateMedia(
   mediaId: number,
   mediaType: "anime" | "manga",
   rating: number,
-): Promise<RatingResponse> {
+): Promise<{ success: boolean; message?: string }> {
   try {
-    // Get user ID from session
+    // Validate rating
+    if (rating < 1 || rating > 10) {
+      return {
+        success: false,
+        message: "Rating must be between 1 and 10.",
+      }
+    }
+
+    // Ensure table exists
+    const tableExists = await ensureRatingsTable()
+    if (!tableExists) {
+      return {
+        success: false,
+        message: "Ratings table does not exist. Please set up the database.",
+      }
+    }
+
+    // Get user from session
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -59,32 +65,24 @@ export async function rateMedia(
     if (!user) {
       return {
         success: false,
-        message: "User not authenticated",
+        message: "You must be logged in to rate items.",
       }
     }
 
-    // Check if rating already exists
+    // Check if item is already rated
     const { data: existingRating, error: checkError } = await supabase
-      .from("ratings")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId)
-      .eq("media_type", mediaType)
+      .from(DB_SCHEMA.TABLES.RATINGS)
+      .select(DB_SCHEMA.COLUMNS.RATINGS.ID)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID, mediaId)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, mediaType)
       .maybeSingle()
 
-    // Handle potential schema errors
-    if (checkError) {
-      if (checkError.message.includes('column "media_id" does not exist')) {
-        console.error('Database schema error: column "media_id" does not exist in ratings table')
-        return {
-          success: false,
-          message: "Database schema error. Please contact support.",
-        }
-      }
-
-      if (checkError.code !== "PGRST116") {
-        // Not found error
-        throw checkError
+    if (checkError && !checkError.message.includes("No rows found")) {
+      console.error("Error checking ratings:", checkError)
+      return {
+        success: false,
+        message: "Failed to check if item is already rated.",
       }
     }
 
@@ -93,46 +91,60 @@ export async function rateMedia(
     if (existingRating) {
       // Update existing rating
       result = await supabase
-        .from("ratings")
+        .from(DB_SCHEMA.TABLES.RATINGS)
         .update({
-          rating,
-          updated_at: new Date().toISOString(),
+          [DB_SCHEMA.COLUMNS.RATINGS.RATING]: rating,
+          [DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT]: new Date().toISOString(),
         })
-        .eq("id", existingRating.id)
+        .eq(DB_SCHEMA.COLUMNS.RATINGS.ID, existingRating.id)
     } else {
       // Insert new rating
-      result = await supabase.from("ratings").insert({
-        user_id: user.id,
-        media_id: mediaId,
-        media_type: mediaType,
-        rating,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+      result = await supabase.from(DB_SCHEMA.TABLES.RATINGS).insert({
+        [DB_SCHEMA.COLUMNS.RATINGS.USER_ID]: user.id,
+        [DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID]: mediaId,
+        [DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE]: mediaType,
+        [DB_SCHEMA.COLUMNS.RATINGS.RATING]: rating,
+        [DB_SCHEMA.COLUMNS.RATINGS.CREATED_AT]: new Date().toISOString(),
+        [DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT]: new Date().toISOString(),
       })
     }
 
     if (result.error) {
-      throw result.error
+      console.error("Error rating media:", result.error)
+      return {
+        success: false,
+        message: "Failed to rate item.",
+      }
     }
 
     return {
       success: true,
-      message: "Rating submitted successfully",
-      rating,
+      message: "Item rated successfully.",
     }
-  } catch (error) {
-    console.error("Error rating media:", error)
+  } catch (error: any) {
+    console.error("Error in rateMedia:", error)
     return {
       success: false,
-      message: `Failed to submit rating: ${error.message}`,
+      message: error.message || "An unexpected error occurred.",
     }
   }
 }
 
-// Get a user's rating with proper error handling
+/**
+ * Gets a user's rating for a media item
+ * @param mediaId The ID of the media to get the rating for
+ * @param mediaType The type of media (anime or manga)
+ * @returns A promise that resolves to the rating or null if not rated
+ */
 export async function getUserRating(mediaId: number, mediaType: "anime" | "manga"): Promise<number | null> {
   try {
-    // Get user ID from session
+    // Ensure table exists
+    const tableExists = await ensureRatingsTable()
+    if (!tableExists) {
+      return null
+    }
+
+    // Get user from session
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -141,45 +153,72 @@ export async function getUserRating(mediaId: number, mediaType: "anime" | "manga
       return null
     }
 
+    // Get rating
     const { data, error } = await supabase
-      .from("ratings")
-      .select("rating")
-      .eq("user_id", user.id)
-      .eq("media_id", mediaId)
-      .eq("media_type", mediaType)
+      .from(DB_SCHEMA.TABLES.RATINGS)
+      .select(DB_SCHEMA.COLUMNS.RATINGS.RATING)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID, mediaId)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, mediaType)
       .maybeSingle()
 
-    // Handle potential schema errors
-    if (error) {
-      if (error.message.includes('column "media_id" does not exist')) {
-        console.error('Database schema error: column "media_id" does not exist in ratings table')
-        return null
-      }
-
-      if (error.code !== "PGRST116") {
-        // Not found error
-        console.error("Error fetching user rating:", error)
-        return null
-      }
+    if (error && !error.message.includes("No rows found")) {
+      console.error("Error getting user rating:", error)
+      return null
     }
 
     return data?.rating || null
   } catch (error) {
-    console.error("Error getting user rating:", error)
+    console.error("Error in getUserRating:", error)
     return null
   }
 }
 
-// Convenience functions for anime and manga ratings
+/**
+ * Convenience function to get a user's anime rating
+ * @param animeId The ID of the anime to get the rating for
+ * @returns A promise that resolves to the rating or null if not rated
+ */
 export const getUserAnimeRating = (animeId: number) => getUserRating(animeId, "anime")
-export const getUserMangaRating = (mangaId: number) => getUserRating(mangaId, "manga")
-export const rateAnime = (animeId: number, rating: number) => rateMedia(animeId, rating, "anime")
-export const rateManga = (mangaId: number, rating: number) => rateMedia(mangaId, rating, "manga")
 
-// Fetch all ratings for the current user
+/**
+ * Convenience function to get a user's manga rating
+ * @param mangaId The ID of the manga to get the rating for
+ * @returns A promise that resolves to the rating or null if not rated
+ */
+export const getUserMangaRating = (mangaId: number) => getUserRating(mangaId, "manga")
+
+/**
+ * Convenience function to rate an anime
+ * @param animeId The ID of the anime to rate
+ * @param rating The rating to give (1-10)
+ * @returns A promise that resolves to an object with success status and optional error message
+ */
+export const rateAnime = (animeId: number, rating: number) => rateMedia(animeId, "anime", rating)
+
+/**
+ * Convenience function to rate a manga
+ * @param mangaId The ID of the manga to rate
+ * @param rating The rating to give (1-10)
+ * @returns A promise that resolves to an object with success status and optional error message
+ */
+export const rateManga = (mangaId: number, rating: number) => rateMedia(mangaId, "manga", rating)
+
+/**
+ * Fetches all ratings for the current user
+ * @param type The type of media to fetch ratings for (anime or manga)
+ * @returns A promise that resolves to an array of ratings
+ */
 export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeRating[]> {
   try {
-    // Get user ID from session
+    // Ensure table exists
+    const tableExists = await ensureRatingsTable()
+    if (!tableExists) {
+      console.error("Ratings table does not exist. Please set up the database.")
+      return []
+    }
+
+    // Get user from session
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -188,33 +227,31 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
       return []
     }
 
-    // Build the query
+    // Build query
     let query = supabase
-      .from("ratings")
+      .from(DB_SCHEMA.TABLES.RATINGS)
       .select(`
-        id,
-        media_id,
-        media_type,
-        rating,
-        created_at,
-        updated_at
+        ${DB_SCHEMA.COLUMNS.RATINGS.ID},
+        ${DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID},
+        ${DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE},
+        ${DB_SCHEMA.COLUMNS.RATINGS.RATING},
+        ${DB_SCHEMA.COLUMNS.RATINGS.CREATED_AT},
+        ${DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT}
       `)
-      .eq("user_id", user.id)
-      .order("updated_at", { ascending: false })
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
+      .order(DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT, { ascending: false })
 
     // Filter by type if provided
     if (type) {
-      query = query.eq("media_type", type)
+      query = query.eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, type)
     }
 
+    // Execute query
     const { data, error } = await query
 
     if (error) {
-      if (error.message.includes("does not exist")) {
-        console.error("Database schema error: ratings table or column does not exist")
-        return []
-      }
-      throw error
+      console.error("Error fetching user ratings:", error)
+      return []
     }
 
     if (!data || data.length === 0) {
@@ -237,21 +274,63 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
 
     return ratings
   } catch (error) {
-    console.error("Error fetching user ratings:", error)
+    console.error("Error in fetchUserRatings:", error)
     return []
   }
 }
 
-// Delete a rating
-export async function deleteRating(ratingId: number): Promise<boolean> {
+/**
+ * Deletes a rating
+ * @param ratingId The ID of the rating to delete
+ * @returns A promise that resolves to a boolean indicating if the deletion was successful
+ */
+export async function deleteRating(ratingId: string): Promise<{ success: boolean; message?: string }> {
   try {
-    const { error } = await supabase.from("ratings").delete().eq("id", ratingId)
+    // Ensure table exists
+    const tableExists = await ensureRatingsTable()
+    if (!tableExists) {
+      return {
+        success: false,
+        message: "Ratings table does not exist. Please set up the database.",
+      }
+    }
 
-    if (error) throw error
+    // Get user from session
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-    return true
-  } catch (error) {
-    console.error("Error deleting rating:", error)
-    return false
+    if (!user) {
+      return {
+        success: false,
+        message: "You must be logged in to delete ratings.",
+      }
+    }
+
+    // Delete rating
+    const { error } = await supabase
+      .from(DB_SCHEMA.TABLES.RATINGS)
+      .delete()
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.ID, ratingId)
+      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id) // Ensure user can only delete their own ratings
+
+    if (error) {
+      console.error("Error deleting rating:", error)
+      return {
+        success: false,
+        message: "Failed to delete rating.",
+      }
+    }
+
+    return {
+      success: true,
+      message: "Rating deleted successfully.",
+    }
+  } catch (error: any) {
+    console.error("Error in deleteRating:", error)
+    return {
+      success: false,
+      message: error.message || "An unexpected error occurred.",
+    }
   }
 }

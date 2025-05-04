@@ -1,10 +1,12 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { getSupabaseClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { DB_SCHEMA } from "@/lib/supabase/schema"
+import type { Session } from "@supabase/supabase-js"
 
 interface UserProfile {
   id: string
@@ -13,16 +15,25 @@ interface UserProfile {
   avatar_url?: string
 }
 
-interface AuthContextType {
+interface AuthState {
   user: UserProfile | null
   isAuthenticated: boolean
   token: string | null
-  login: (email: string, password: string) => Promise<void>
-  signup: (name: string, email: string, password: string) => Promise<any>
-  logout: () => Promise<void>
-  updateProfile: (profile: Partial<UserProfile>) => Promise<void>
-  loading: boolean
-  resendConfirmationEmail: (email: string) => Promise<void>
+  isLoading: boolean
+  isAuthenticating: boolean
+}
+
+interface AuthContextType extends AuthState {
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+  ) => Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }>
+  logout: () => Promise<{ success: boolean; error?: string }>
+  updateProfile: (profile: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>
+  resendConfirmationEmail: (email: string) => Promise<{ success: boolean; error?: string }>
+  refreshSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -31,17 +42,24 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const supabase = getSupabaseClient()
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [authLoading, setAuthLoading] = useState(false)
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    isAuthenticated: false,
+    token: null,
+    isLoading: true,
+    isAuthenticating: false,
+  })
   const router = useRouter()
   const { toast } = useToast()
 
   // Function to fetch user profile
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = useCallback(async (userId: string): Promise<any | null> => {
     try {
-      const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+      const { data: profile, error } = await supabase
+        .from(DB_SCHEMA.TABLES.PROFILES)
+        .select("*")
+        .eq(DB_SCHEMA.COLUMNS.PROFILES.ID, userId)
+        .single()
 
       if (error) {
         console.error("Error fetching user profile:", error)
@@ -53,90 +71,100 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Error in fetchUserProfile:", error)
       return null
     }
-  }
+  }, [])
 
   // Function to create user profile if it doesn't exist
-  const createUserProfile = async (userId: string, email: string, username: string, avatarUrl?: string) => {
-    try {
-      const newProfile = {
-        id: userId,
-        username: username || email?.split("@")[0] || "User",
-        avatar_url: avatarUrl,
-        email: email,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
+  const createUserProfile = useCallback(
+    async (userId: string, email: string, username: string, avatarUrl?: string): Promise<any | null> => {
+      try {
+        const newProfile = {
+          [DB_SCHEMA.COLUMNS.PROFILES.ID]: userId,
+          [DB_SCHEMA.COLUMNS.PROFILES.USERNAME]: username || email?.split("@")[0] || "User",
+          [DB_SCHEMA.COLUMNS.PROFILES.AVATAR_URL]: avatarUrl,
+          [DB_SCHEMA.COLUMNS.PROFILES.EMAIL]: email,
+          [DB_SCHEMA.COLUMNS.PROFILES.CREATED_AT]: new Date().toISOString(),
+          [DB_SCHEMA.COLUMNS.PROFILES.UPDATED_AT]: new Date().toISOString(),
+        }
 
-      const { error } = await supabase.from("profiles").insert(newProfile)
+        const { error } = await supabase.from(DB_SCHEMA.TABLES.PROFILES).insert(newProfile)
 
-      if (error) {
-        console.error("Error creating user profile:", error)
+        if (error) {
+          console.error("Error creating user profile:", error)
+          return null
+        }
+
+        return newProfile
+      } catch (error) {
+        console.error("Error in createUserProfile:", error)
         return null
       }
-
-      return newProfile
-    } catch (error) {
-      console.error("Error in createUserProfile:", error)
-      return null
-    }
-  }
+    },
+    [],
+  )
 
   // Function to set user state from session
-  const setUserFromSession = async (session: any) => {
-    if (!session?.user) {
-      setUser(null)
-      return
-    }
-
-    try {
-      const { user: sessionUser } = session
-
-      // Get user profile data
-      let profile = await fetchUserProfile(sessionUser.id)
-
-      // If profile doesn't exist, create one
-      if (!profile) {
-        profile = await createUserProfile(
-          sessionUser.id,
-          sessionUser.email || "",
-          sessionUser.user_metadata?.full_name || "",
-          sessionUser.user_metadata?.avatar_url,
-        )
+  const setUserFromSession = useCallback(
+    async (session: Session | null) => {
+      if (!session?.user) {
+        setState((prev) => ({ ...prev, user: null, isAuthenticated: false, token: null }))
+        return
       }
 
-      if (profile) {
-        setUser({
-          id: sessionUser.id,
-          email: sessionUser.email || "",
-          name: profile.username || sessionUser.email?.split("@")[0] || "User",
-          avatar_url: profile.avatar_url,
-        })
-      } else {
-        // Fallback if we couldn't get or create a profile
-        setUser({
-          id: sessionUser.id,
-          email: sessionUser.email || "",
-          name: sessionUser.email?.split("@")[0] || "User",
-          avatar_url: sessionUser.user_metadata?.avatar_url,
-        })
-      }
+      try {
+        const { user: sessionUser } = session
 
-      if (session?.access_token) {
-        setToken(session.access_token)
-      } else {
-        setToken(null)
+        // Get user profile data
+        let profile = await fetchUserProfile(sessionUser.id)
+
+        // If profile doesn't exist, create one
+        if (!profile) {
+          profile = await createUserProfile(
+            sessionUser.id,
+            sessionUser.email || "",
+            sessionUser.user_metadata?.full_name || "",
+            sessionUser.user_metadata?.avatar_url,
+          )
+        }
+
+        if (profile) {
+          setState((prev) => ({
+            ...prev,
+            user: {
+              id: sessionUser.id,
+              email: sessionUser.email || "",
+              name: profile.username || sessionUser.email?.split("@")[0] || "User",
+              avatar_url: profile.avatar_url,
+            },
+            isAuthenticated: true,
+            token: session.access_token || null,
+          }))
+        } else {
+          // Fallback if we couldn't get or create a profile
+          setState((prev) => ({
+            ...prev,
+            user: {
+              id: sessionUser.id,
+              email: sessionUser.email || "",
+              name: sessionUser.email?.split("@")[0] || "User",
+              avatar_url: sessionUser.user_metadata?.avatar_url,
+            },
+            isAuthenticated: true,
+            token: session.access_token || null,
+          }))
+        }
+      } catch (error) {
+        console.error("Error setting user from session:", error)
+        setState((prev) => ({ ...prev, user: null, isAuthenticated: false, token: null }))
       }
-    } catch (error) {
-      console.error("Error setting user from session:", error)
-      setUser(null)
-    }
-  }
+    },
+    [fetchUserProfile, createUserProfile],
+  )
 
   // Initialize auth state
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        setLoading(true)
+        setState((prev) => ({ ...prev, isLoading: true }))
 
         // Get current session
         const {
@@ -153,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
             await setUserFromSession(session)
           } else if (event === "SIGNED_OUT" || event === "USER_DELETED") {
-            setUser(null)
+            setState((prev) => ({ ...prev, user: null, isAuthenticated: false, token: null }))
           }
         })
 
@@ -162,222 +190,226 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error("Error initializing auth:", error)
-        setUser(null)
+        setState((prev) => ({ ...prev, user: null, isAuthenticated: false, token: null }))
       } finally {
-        setLoading(false)
+        setState((prev) => ({ ...prev, isLoading: false }))
       }
     }
 
     initializeAuth()
-  }, [])
+  }, [setUserFromSession])
 
-  const login = async (email: string, password: string) => {
+  const refreshSession = useCallback(async () => {
     try {
-      setAuthLoading(true)
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        if (error.message.toLowerCase().includes("email not confirmed")) {
-          throw new Error("Please check your email to confirm your account before logging in.")
-        }
-        throw error
-      }
-
-      await setUserFromSession(data.session)
-
-      // Refresh the page to ensure all server components get the updated session
-      router.refresh()
-
-      return data
-    } catch (error: any) {
-      console.error("Error logging in:", error)
-      toast({
-        title: "Login Failed",
-        description: error.message || "An error occurred during login",
-        variant: "destructive",
-      })
-      throw error
-    } finally {
-      setAuthLoading(false)
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      await setUserFromSession(session)
+    } catch (error) {
+      console.error("Error refreshing session:", error)
     }
-  }
+  }, [setUserFromSession])
 
-  const signup = async (name: string, email: string, password: string) => {
-    try {
-      setAuthLoading(true)
+  const login = useCallback(
+    async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        setState((prev) => ({ ...prev, isAuthenticating: true }))
 
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            full_name: name,
-          },
-        },
-      })
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
 
-      if (error) throw error
-
-      // Check if email confirmation is required
-      if (data?.user && data.user.identities?.length === 0) {
-        throw new Error("This email is already registered. Please check your inbox for the confirmation email.")
-      }
-
-      if (data?.user && !data.session) {
-        // Email confirmation is required
-        return {
-          success: true,
-          message: "Please check your email to confirm your account before logging in.",
-          requiresEmailConfirmation: true,
-        }
-      }
-
-      // If we have a session, the user is automatically confirmed
-      if (data?.user && data.session) {
-        // Create or update the profile
-        const profile = await fetchUserProfile(data.user.id)
-
-        if (!profile) {
-          await createUserProfile(data.user.id, data.user.email || "", name, data.user.user_metadata?.avatar_url)
-        } else {
-          // Update existing profile
-          await supabase
-            .from("profiles")
-            .update({
-              username: name,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", data.user.id)
+        if (error) {
+          if (error.message.toLowerCase().includes("email not confirmed")) {
+            return {
+              success: false,
+              error: "Please check your email to confirm your account before logging in.",
+            }
+          }
+          return { success: false, error: error.message }
         }
 
         await setUserFromSession(data.session)
 
         // Refresh the page to ensure all server components get the updated session
         router.refresh()
-      }
 
-      return {
-        success: true,
-        requiresEmailConfirmation: !data.session,
+        return { success: true }
+      } catch (error: any) {
+        console.error("Error logging in:", error)
+        return { success: false, error: error.message || "An error occurred during login" }
+      } finally {
+        setState((prev) => ({ ...prev, isAuthenticating: false }))
       }
-    } catch (error: any) {
-      console.error("Error signing up:", error)
-      toast({
-        title: "Signup Failed",
-        description: error.message || "An error occurred during signup",
-        variant: "destructive",
-      })
-      throw error
-    } finally {
-      setAuthLoading(false)
-    }
-  }
+    },
+    [router, setUserFromSession],
+  )
 
-  const resendConfirmationEmail = async (email: string) => {
+  const signup = useCallback(
+    async (
+      name: string,
+      email: string,
+      password: string,
+    ): Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }> => {
+      try {
+        setState((prev) => ({ ...prev, isAuthenticating: true }))
+
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            data: {
+              full_name: name,
+            },
+          },
+        })
+
+        if (error) return { success: false, error: error.message }
+
+        // Check if email confirmation is required
+        if (data?.user && data.user.identities?.length === 0) {
+          return {
+            success: false,
+            error: "This email is already registered. Please check your inbox for the confirmation email.",
+          }
+        }
+
+        if (data?.user && !data.session) {
+          // Email confirmation is required
+          return {
+            success: true,
+            requiresEmailConfirmation: true,
+          }
+        }
+
+        // If we have a session, the user is automatically confirmed
+        if (data?.user && data.session) {
+          // Create or update the profile
+          const profile = await fetchUserProfile(data.user.id)
+
+          if (!profile) {
+            await createUserProfile(data.user.id, data.user.email || "", name, data.user.user_metadata?.avatar_url)
+          } else {
+            // Update existing profile
+            await supabase
+              .from(DB_SCHEMA.TABLES.PROFILES)
+              .update({
+                [DB_SCHEMA.COLUMNS.PROFILES.USERNAME]: name,
+                [DB_SCHEMA.COLUMNS.PROFILES.UPDATED_AT]: new Date().toISOString(),
+              })
+              .eq(DB_SCHEMA.COLUMNS.PROFILES.ID, data.user.id)
+          }
+
+          await setUserFromSession(data.session)
+
+          // Refresh the page to ensure all server components get the updated session
+          router.refresh()
+        }
+
+        return {
+          success: true,
+          requiresEmailConfirmation: !data.session,
+        }
+      } catch (error: any) {
+        console.error("Error signing up:", error)
+        return { success: false, error: error.message || "An error occurred during signup" }
+      } finally {
+        setState((prev) => ({ ...prev, isAuthenticating: false }))
+      }
+    },
+    [router, setUserFromSession, fetchUserProfile, createUserProfile],
+  )
+
+  const resendConfirmationEmail = useCallback(async (email: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      setAuthLoading(true)
+      setState((prev) => ({ ...prev, isAuthenticating: true }))
 
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
       })
 
-      if (error) throw error
+      if (error) return { success: false, error: error.message }
 
-      toast({
-        title: "Confirmation Email Sent",
-        description: "Please check your inbox for the confirmation link",
-      })
+      return { success: true }
     } catch (error: any) {
       console.error("Error resending confirmation email:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Failed to resend confirmation email",
-        variant: "destructive",
-      })
-      throw error
+      return { success: false, error: error.message || "Failed to resend confirmation email" }
     } finally {
-      setAuthLoading(false)
+      setState((prev) => ({ ...prev, isAuthenticating: false }))
     }
-  }
+  }, [])
 
-  const logout = async () => {
+  const logout = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      setAuthLoading(true)
+      setState((prev) => ({ ...prev, isAuthenticating: true }))
 
       const { error } = await supabase.auth.signOut()
 
-      if (error) throw error
+      if (error) return { success: false, error: error.message }
 
-      setUser(null)
+      setState((prev) => ({ ...prev, user: null, isAuthenticated: false, token: null }))
 
       // Refresh the page to ensure all server components get the updated session
       router.refresh()
+
+      return { success: true }
     } catch (error: any) {
       console.error("Error logging out:", error)
-      toast({
-        title: "Logout Failed",
-        description: error.message || "An error occurred during logout",
-        variant: "destructive",
-      })
-      throw error
+      return { success: false, error: error.message || "An error occurred during logout" }
     } finally {
-      setAuthLoading(false)
+      setState((prev) => ({ ...prev, isAuthenticating: false }))
     }
-  }
+  }, [router])
 
-  const updateProfile = async (profile: Partial<UserProfile>) => {
-    try {
-      setAuthLoading(true)
+  const updateProfile = useCallback(
+    async (profile: Partial<UserProfile>): Promise<{ success: boolean; error?: string }> => {
+      try {
+        setState((prev) => ({ ...prev, isAuthenticating: true }))
 
-      if (!user) throw new Error("No user logged in")
+        if (!state.user) return { success: false, error: "No user logged in" }
 
-      const updates = {
-        username: profile.name,
-        avatar_url: profile.avatar_url,
-        updated_at: new Date().toISOString(),
+        const updates = {
+          [DB_SCHEMA.COLUMNS.PROFILES.USERNAME]: profile.name,
+          [DB_SCHEMA.COLUMNS.PROFILES.AVATAR_URL]: profile.avatar_url,
+          [DB_SCHEMA.COLUMNS.PROFILES.UPDATED_AT]: new Date().toISOString(),
+        }
+
+        const { error } = await supabase
+          .from(DB_SCHEMA.TABLES.PROFILES)
+          .update(updates)
+          .eq(DB_SCHEMA.COLUMNS.PROFILES.ID, state.user.id)
+
+        if (error) return { success: false, error: error.message }
+
+        setState((prev) => ({
+          ...prev,
+          user: prev.user ? { ...prev.user, ...profile } : null,
+        }))
+
+        return { success: true }
+      } catch (error: any) {
+        console.error("Error updating profile:", error)
+        return { success: false, error: error.message || "Failed to update profile" }
+      } finally {
+        setState((prev) => ({ ...prev, isAuthenticating: false }))
       }
-
-      const { error } = await supabase.from("profiles").update(updates).eq("id", user.id)
-
-      if (error) throw error
-
-      setUser({ ...user, ...profile })
-
-      toast({
-        title: "Profile Updated",
-        description: "Your profile has been successfully updated",
-      })
-    } catch (error: any) {
-      console.error("Error updating profile:", error)
-      toast({
-        title: "Update Failed",
-        description: error.message || "Failed to update profile",
-        variant: "destructive",
-      })
-      throw error
-    } finally {
-      setAuthLoading(false)
-    }
-  }
+    },
+    [state.user],
+  )
 
   return (
     <AuthContext.Provider
       value={{
-        user,
-        isAuthenticated: !!user,
-        token,
+        ...state,
         login,
         signup,
         logout,
         updateProfile,
-        loading: loading || authLoading,
         resendConfirmationEmail,
+        refreshSession,
       }}
     >
       {children}

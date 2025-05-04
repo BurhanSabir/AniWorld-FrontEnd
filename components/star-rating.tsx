@@ -1,10 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Star } from "lucide-react"
+import { Star, Loader2 } from "lucide-react"
 import { getUserAnimeRating, getUserMangaRating, rateAnime, rateManga } from "@/lib/api/ratings"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/context/auth-context"
+import { cn } from "@/lib/utils"
 
 interface StarRatingProps {
   mediaId: number
@@ -12,15 +13,23 @@ interface StarRatingProps {
   size?: "sm" | "md" | "lg"
   showRating?: boolean
   className?: string
+  readOnly?: boolean
 }
 
-export function StarRating({ mediaId, mediaType, size = "md", showRating = true, className = "" }: StarRatingProps) {
+export function StarRating({
+  mediaId,
+  mediaType,
+  size = "md",
+  showRating = true,
+  className = "",
+  readOnly = false,
+}: StarRatingProps) {
   const [rating, setRating] = useState<number>(0)
   const [hoveredRating, setHoveredRating] = useState<number>(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
-  const { user, token } = useAuth()
+  const { isAuthenticated } = useAuth()
 
   const sizeClass = {
     sm: "w-4 h-4",
@@ -29,8 +38,9 @@ export function StarRating({ mediaId, mediaType, size = "md", showRating = true,
   }
 
   useEffect(() => {
+    // Fetch user's rating for this media if authenticated
     const fetchRating = async () => {
-      if (!user) return
+      if (!isAuthenticated) return
 
       setIsLoading(true)
       setError(null)
@@ -56,10 +66,12 @@ export function StarRating({ mediaId, mediaType, size = "md", showRating = true,
     }
 
     fetchRating()
-  }, [mediaId, mediaType, user])
+  }, [mediaId, mediaType, isAuthenticated])
 
   const handleRating = async (newRating: number) => {
-    if (!user) {
+    if (readOnly) return
+
+    if (!isAuthenticated) {
       toast({
         title: "Authentication required",
         description: "Please log in to rate this content",
@@ -72,23 +84,28 @@ export function StarRating({ mediaId, mediaType, size = "md", showRating = true,
     setError(null)
 
     try {
-      if (mediaType === "anime") {
-        await rateAnime(mediaId, newRating)
-      } else {
-        await rateManga(mediaId, newRating)
-      }
+      const result = mediaType === "anime" ? await rateAnime(mediaId, newRating) : await rateManga(mediaId, newRating)
 
-      setRating(newRating)
-      toast({
-        title: "Rating submitted",
-        description: `You rated this ${mediaType} ${newRating} stars`,
-      })
-    } catch (err) {
+      if (result.success) {
+        setRating(newRating)
+        toast({
+          title: "Rating submitted",
+          description: `You rated this ${mediaType} ${newRating} stars`,
+        })
+      } else {
+        setError(result.message || "Failed to submit rating")
+        toast({
+          title: "Rating failed",
+          description: result.message || "There was an error submitting your rating",
+          variant: "destructive",
+        })
+      }
+    } catch (err: any) {
       console.error("Error submitting rating:", err)
-      setError("Failed to submit rating")
+      setError(err.message || "Failed to submit rating")
       toast({
         title: "Rating failed",
-        description: "There was an error submitting your rating",
+        description: err.message || "There was an error submitting your rating",
         variant: "destructive",
       })
     } finally {
@@ -97,28 +114,35 @@ export function StarRating({ mediaId, mediaType, size = "md", showRating = true,
   }
 
   return (
-    <div className={`flex flex-col items-center ${className}`}>
+    <div className={cn("flex flex-col items-center", className)}>
       <div className="flex space-x-1">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            type="button"
-            disabled={isLoading}
-            onClick={() => handleRating(star)}
-            onMouseEnter={() => setHoveredRating(star)}
-            onMouseLeave={() => setHoveredRating(0)}
-            className={`focus:outline-none transition-colors duration-200 ${
-              isLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-            }`}
-            aria-label={`Rate ${star} stars`}
-          >
-            <Star
-              className={`${sizeClass[size]} ${
-                star <= (hoveredRating || rating) ? "text-yellow-400 fill-yellow-400" : "text-gray-300"
-              }`}
-            />
-          </button>
-        ))}
+        {isLoading ? (
+          <Loader2 className={cn(sizeClass[size], "animate-spin text-muted-foreground")} />
+        ) : (
+          Array.from({ length: 5 }).map((_, star) => (
+            <button
+              key={star}
+              type="button"
+              disabled={isLoading || readOnly}
+              onClick={() => handleRating(star + 1)}
+              onMouseEnter={() => !readOnly && setHoveredRating(star + 1)}
+              onMouseLeave={() => !readOnly && setHoveredRating(0)}
+              className={cn(
+                "focus:outline-none transition-colors duration-200",
+                isLoading || readOnly ? "cursor-default" : "cursor-pointer",
+              )}
+              aria-label={`Rate ${star + 1} stars`}
+            >
+              <Star
+                className={cn(
+                  sizeClass[size],
+                  star + 1 <= (hoveredRating || rating) ? "text-yellow-400 fill-yellow-400" : "text-gray-300",
+                  readOnly && "cursor-default",
+                )}
+              />
+            </button>
+          ))
+        )}
       </div>
 
       {showRating && rating > 0 && <span className="text-sm mt-1 text-gray-600">Your rating: {rating}/5</span>}

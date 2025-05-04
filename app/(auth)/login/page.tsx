@@ -5,38 +5,42 @@ import type React from "react"
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, LogIn } from "lucide-react"
+import { Eye, EyeOff, LogIn, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { signIn } from "@/lib/api/auth"
+import { Alert } from "@/components/ui/alert"
+import { useAuth } from "@/context/auth-context"
+import { useToast } from "@/hooks/use-toast"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const { login, isAuthenticating } = useAuth()
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    setIsLoading(true)
 
     try {
-      const result = await signIn(email, password)
+      const result = await login(email, password)
+
       if (result.success) {
+        toast({
+          description: "Logged in successfully",
+        })
         router.push("/")
       } else {
         setError(result.error || "Failed to sign in")
       }
-    } catch (err) {
+    } catch (err: any) {
       setError("An unexpected error occurred")
       console.error(err)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -93,15 +97,15 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-              {error && <div className="rounded-md bg-red-900/20 p-3 text-sm text-red-500">{error}</div>}
+              {error && <Alert className="rounded-md bg-red-900/20 p-3 text-sm text-red-500">{error}</Alert>}
               <Button
                 type="submit"
-                disabled={isLoading}
+                disabled={isAuthenticating}
                 className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white"
               >
-                {isLoading ? (
+                {isAuthenticating ? (
                   <span className="flex items-center gap-2">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                     Signing in...
                   </span>
                 ) : (
