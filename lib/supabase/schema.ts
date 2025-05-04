@@ -232,28 +232,6 @@ $$;
 `
 
 /**
- * Executes a SQL query using the Supabase client
- * @param sql The SQL query to execute
- * @returns A promise that resolves when the query is complete
- */
-export async function executeSql(sql: string): Promise<{ success: boolean; error?: any }> {
-  try {
-    const supabase = getSupabaseClient()
-    const { error } = await supabase.rpc("execute_sql", { query: sql })
-
-    if (error) {
-      console.error("Error executing SQL:", error)
-      return { success: false, error }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error in executeSql:", error)
-    return { success: false, error }
-  }
-}
-
-/**
  * Checks if a table exists in the database
  * @param tableName The name of the table to check
  * @returns A promise that resolves to a boolean indicating if the table exists
@@ -280,41 +258,85 @@ export async function setupDatabase(): Promise<{
   ratingsTable: boolean
   profilesTable: boolean
   error?: any
+  manualSetupRequired?: boolean
+  setupInstructions?: string
 }> {
   try {
-    // Check if the execute_sql function exists, and create it if it doesn't
     const supabase = getSupabaseClient()
+
+    // First, try to use the execute_sql function if it exists
     const { error: functionCheckError } = await supabase.rpc("execute_sql", {
       query: "SELECT 1",
     })
 
-    // If the function doesn't exist, we need to create it
+    // If the function doesn't exist, we'll need to use a different approach
     if (functionCheckError && functionCheckError.message.includes("function execute_sql")) {
-      console.log("Creating execute_sql function...")
-      // We need to use a direct SQL query to create the function
-      // This requires admin privileges, so we'll just log an error if it fails
-      console.error(
-        "The execute_sql function does not exist. Please create it with the following SQL:",
-        `
-        CREATE OR REPLACE FUNCTION execute_sql(query text)
-        RETURNS void
-        LANGUAGE plpgsql
-        SECURITY DEFINER
-        AS $$
-        BEGIN
-          EXECUTE query;
-        END;
-        $$;
-        `,
-      )
+      console.log("execute_sql function not found, trying direct table creation...")
+
+      // Try to create tables directly using Supabase's built-in methods
+      // This is a limited approach that won't handle all the SQL we need
+      // but it's better than nothing
+
+      // Check if tables exist first
+      const [watchlistExists, ratingsExists, profilesExists] = await Promise.all([
+        tableExists(DB_SCHEMA.TABLES.WATCHLIST),
+        tableExists(DB_SCHEMA.TABLES.RATINGS),
+        tableExists(DB_SCHEMA.TABLES.PROFILES),
+      ])
+
+      // If tables already exist, we're good
+      if (watchlistExists && ratingsExists && profilesExists) {
+        return {
+          success: true,
+          watchlistTable: true,
+          ratingsTable: true,
+          profilesTable: true,
+        }
+      }
+
+      // We need to provide manual setup instructions
+      const setupInstructions = `
+# Database Setup Instructions
+
+The application requires several database tables that couldn't be created automatically.
+Please follow these steps to set up your database:
+
+1. Go to your Supabase project dashboard
+2. Navigate to the SQL Editor
+3. Create a new query
+4. Copy and paste the following SQL code:
+
+\`\`\`sql
+-- Create the watchlist table
+${CREATE_WATCHLIST_TABLE}
+
+-- Create the ratings table
+${CREATE_RATINGS_TABLE}
+
+-- Create the profiles table
+${CREATE_PROFILES_TABLE}
+
+-- Grant necessary permissions
+GRANT ALL ON TABLE public.watchlist TO authenticated;
+GRANT ALL ON TABLE public.ratings TO authenticated;
+GRANT ALL ON TABLE public.profiles TO authenticated;
+\`\`\`
+
+5. Run the query
+6. Refresh the application
+      `
+
       return {
         success: false,
-        watchlistTable: false,
-        ratingsTable: false,
-        profilesTable: false,
-        error: "execute_sql function does not exist",
+        watchlistTable: watchlistExists,
+        ratingsTable: ratingsExists,
+        profilesTable: profilesExists,
+        manualSetupRequired: true,
+        setupInstructions,
       }
     }
+
+    // If we get here, the execute_sql function exists, so we can use it
 
     // Check if tables exist
     const [watchlistExists, ratingsExists, profilesExists] = await Promise.all([
@@ -325,17 +347,67 @@ export async function setupDatabase(): Promise<{
 
     // Create tables if they don't exist
     const results = await Promise.all([
-      !watchlistExists ? executeSql(CREATE_WATCHLIST_TABLE) : { success: true },
-      !ratingsExists ? executeSql(CREATE_RATINGS_TABLE) : { success: true },
-      !profilesExists ? executeSql(CREATE_PROFILES_TABLE) : { success: true },
+      !watchlistExists ? supabase.rpc("execute_sql", { query: CREATE_WATCHLIST_TABLE }) : { error: null },
+      !ratingsExists ? supabase.rpc("execute_sql", { query: CREATE_RATINGS_TABLE }) : { error: null },
+      !profilesExists ? supabase.rpc("execute_sql", { query: CREATE_PROFILES_TABLE }) : { error: null },
+    ])
+
+    const errors = results.map((r) => r.error).filter(Boolean)
+
+    if (errors.length > 0) {
+      console.error("Errors creating tables:", errors)
+      return {
+        success: false,
+        watchlistTable: watchlistExists,
+        ratingsTable: ratingsExists,
+        profilesTable: profilesExists,
+        error: errors[0],
+        manualSetupRequired: true,
+        setupInstructions: `
+# Database Setup Instructions
+
+The application encountered errors while trying to create the necessary database tables.
+Please follow these steps to set up your database manually:
+
+1. Go to your Supabase project dashboard
+2. Navigate to the SQL Editor
+3. Create a new query
+4. Copy and paste the following SQL code:
+
+\`\`\`sql
+-- Create the watchlist table
+${CREATE_WATCHLIST_TABLE}
+
+-- Create the ratings table
+${CREATE_RATINGS_TABLE}
+
+-- Create the profiles table
+${CREATE_PROFILES_TABLE}
+
+-- Grant necessary permissions
+GRANT ALL ON TABLE public.watchlist TO authenticated;
+GRANT ALL ON TABLE public.ratings TO authenticated;
+GRANT ALL ON TABLE public.profiles TO authenticated;
+\`\`\`
+
+5. Run the query
+6. Refresh the application
+        `,
+      }
+    }
+
+    // Check if tables were created successfully
+    const [watchlistCreated, ratingsCreated, profilesCreated] = await Promise.all([
+      tableExists(DB_SCHEMA.TABLES.WATCHLIST),
+      tableExists(DB_SCHEMA.TABLES.RATINGS),
+      tableExists(DB_SCHEMA.TABLES.PROFILES),
     ])
 
     return {
-      success: results.every((r) => r.success),
-      watchlistTable: watchlistExists || results[0].success,
-      ratingsTable: ratingsExists || results[1].success,
-      profilesTable: profilesExists || results[2].success,
-      error: results.find((r) => !r.success)?.error,
+      success: watchlistCreated && ratingsCreated && profilesCreated,
+      watchlistTable: watchlistCreated,
+      ratingsTable: ratingsCreated,
+      profilesTable: profilesCreated,
     }
   } catch (error) {
     console.error("Error setting up database:", error)
@@ -345,6 +417,37 @@ export async function setupDatabase(): Promise<{
       ratingsTable: false,
       profilesTable: false,
       error,
+      manualSetupRequired: true,
+      setupInstructions: `
+# Database Setup Instructions
+
+The application encountered an error while trying to set up the database.
+Please follow these steps to set up your database manually:
+
+1. Go to your Supabase project dashboard
+2. Navigate to the SQL Editor
+3. Create a new query
+4. Copy and paste the following SQL code:
+
+\`\`\`sql
+-- Create the watchlist table
+${CREATE_WATCHLIST_TABLE}
+
+-- Create the ratings table
+${CREATE_RATINGS_TABLE}
+
+-- Create the profiles table
+${CREATE_PROFILES_TABLE}
+
+-- Grant necessary permissions
+GRANT ALL ON TABLE public.watchlist TO authenticated;
+GRANT ALL ON TABLE public.ratings TO authenticated;
+GRANT ALL ON TABLE public.profiles TO authenticated;
+\`\`\`
+
+5. Run the query
+6. Refresh the application
+      `,
     }
   }
 }
