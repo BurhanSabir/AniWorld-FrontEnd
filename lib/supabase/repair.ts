@@ -1,122 +1,262 @@
 import { getSupabaseClient } from "./client"
-import { DB_SCHEMA, tableExists } from "./schema"
+import { DB_SCHEMA } from "./schema"
+import { inspectTable, fixTableSchema } from "./inspect"
 
 /**
- * Repairs the database schema by recreating tables with the correct columns
- * @returns A promise that resolves to an object with the status of the repair
+ * Repairs the watchlist table schema
+ * @returns A promise that resolves to a boolean indicating if the repair was successful
  */
-export async function repairDatabaseSchema(): Promise<{
+export async function repairWatchlistTable(): Promise<{
   success: boolean
-  watchlistRepaired: boolean
-  ratingsRepaired: boolean
-  profilesRepaired: boolean
-  error?: any
+  message: string
+  details?: string[]
 }> {
   try {
     const supabase = getSupabaseClient()
 
-    // Check if tables exist
-    const [watchlistExists, ratingsExists, profilesExists] = await Promise.all([
-      tableExists(DB_SCHEMA.TABLES.WATCHLIST),
-      tableExists(DB_SCHEMA.TABLES.RATINGS),
-      tableExists(DB_SCHEMA.TABLES.PROFILES),
-    ])
+    // First, inspect the table
+    const expectedColumns = ["id", "user_id", "media_id", "media_type", "added_at"]
 
-    // Backup existing data if tables exist
-    const watchlistBackup = watchlistExists ? await backupTable(DB_SCHEMA.TABLES.WATCHLIST) : null
-    const ratingsBackup = ratingsExists ? await backupTable(DB_SCHEMA.TABLES.RATINGS) : null
-    const profilesBackup = profilesExists ? await backupTable(DB_SCHEMA.TABLES.PROFILES) : null
+    const inspection = await inspectTable(DB_SCHEMA.TABLES.WATCHLIST, expectedColumns)
 
-    // Drop existing tables
-    if (watchlistExists) {
-      await supabase.rpc("execute_sql", {
-        query: `DROP TABLE IF EXISTS ${DB_SCHEMA.TABLES.WATCHLIST} CASCADE`,
+    if (!inspection.exists) {
+      // Table doesn't exist, create it
+      const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS ${DB_SCHEMA.TABLES.WATCHLIST} (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES auth.users(id) NOT NULL,
+          media_id INTEGER NOT NULL,
+          media_type TEXT NOT NULL,
+          added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          UNIQUE(user_id, media_id, media_type)
+        );
+        
+        -- Add RLS policies
+        ALTER TABLE ${DB_SCHEMA.TABLES.WATCHLIST} ENABLE ROW LEVEL SECURITY;
+        
+        -- Policy to allow users to select only their own watchlist items
+        CREATE POLICY watchlist_select_policy ON ${DB_SCHEMA.TABLES.WATCHLIST}
+          FOR SELECT
+          USING (auth.uid() = user_id);
+          
+        -- Policy to allow users to insert only their own watchlist items
+        CREATE POLICY watchlist_insert_policy ON ${DB_SCHEMA.TABLES.WATCHLIST}
+          FOR INSERT
+          WITH CHECK (auth.uid() = user_id);
+          
+        -- Policy to allow users to update only their own watchlist items
+        CREATE POLICY watchlist_update_policy ON ${DB_SCHEMA.TABLES.WATCHLIST}
+          FOR UPDATE
+          USING (auth.uid() = user_id);
+          
+        -- Policy to allow users to delete only their own watchlist items
+        CREATE POLICY watchlist_delete_policy ON ${DB_SCHEMA.TABLES.WATCHLIST}
+          FOR DELETE
+          USING (auth.uid() = user_id);
+      `
+
+      const { error } = await supabase.rpc("execute_sql", {
+        query: createTableSQL,
       })
+
+      if (error) {
+        return {
+          success: false,
+          message: "Failed to create watchlist table",
+          details: [error.message],
+        }
+      }
+
+      return {
+        success: true,
+        message: "Watchlist table created successfully",
+        details: ["Created table with all required columns"],
+      }
     }
 
-    if (ratingsExists) {
-      await supabase.rpc("execute_sql", {
-        query: `DROP TABLE IF EXISTS ${DB_SCHEMA.TABLES.RATINGS} CASCADE`,
-      })
+    // Table exists but might have issues
+    if (inspection.missingColumns.length > 0) {
+      // Add missing columns
+      const columnDefinitions: Record<string, string> = {
+        id: "UUID PRIMARY KEY DEFAULT uuid_generate_v4()",
+        user_id: "UUID REFERENCES auth.users(id) NOT NULL",
+        media_id: "INTEGER NOT NULL",
+        media_type: "TEXT NOT NULL",
+        added_at: "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+      }
+
+      const success = await fixTableSchema(DB_SCHEMA.TABLES.WATCHLIST, columnDefinitions)
+
+      if (!success) {
+        return {
+          success: false,
+          message: "Failed to repair watchlist table",
+          details: [`Missing columns: ${inspection.missingColumns.join(", ")}`],
+        }
+      }
+
+      return {
+        success: true,
+        message: "Watchlist table repaired successfully",
+        details: [`Added missing columns: ${inspection.missingColumns.join(", ")}`],
+      }
     }
-
-    if (profilesExists) {
-      await supabase.rpc("execute_sql", {
-        query: `DROP TABLE IF EXISTS ${DB_SCHEMA.TABLES.PROFILES} CASCADE`,
-      })
-    }
-
-    // Recreate tables with correct schema
-    // This would use the same SQL as in schema.ts
-
-    // Restore data if possible
-    const watchlistRestored = watchlistBackup ? await restoreTable(DB_SCHEMA.TABLES.WATCHLIST, watchlistBackup) : false
-    const ratingsRestored = ratingsBackup ? await restoreTable(DB_SCHEMA.TABLES.RATINGS, ratingsBackup) : false
-    const profilesRestored = profilesBackup ? await restoreTable(DB_SCHEMA.TABLES.PROFILES, profilesBackup) : false
 
     return {
       success: true,
-      watchlistRepaired: watchlistExists,
-      ratingsRepaired: ratingsExists,
-      profilesRepaired: profilesExists,
+      message: "Watchlist table is correctly configured",
+      details: ["All expected columns exist", `Found columns: ${inspection.columns.join(", ")}`],
     }
-  } catch (error) {
-    console.error("Error repairing database schema:", error)
+  } catch (error: any) {
     return {
       success: false,
-      watchlistRepaired: false,
-      ratingsRepaired: false,
-      profilesRepaired: false,
-      error,
+      message: "Error repairing watchlist table",
+      details: [error.message],
     }
   }
 }
 
 /**
- * Backs up a table's data
- * @param tableName The name of the table to backup
- * @returns A promise that resolves to the backup data or null if backup failed
+ * Repairs the ratings table schema
+ * @returns A promise that resolves to a boolean indicating if the repair was successful
  */
-async function backupTable(tableName: string): Promise<any[] | null> {
+export async function repairRatingsTable(): Promise<{
+  success: boolean
+  message: string
+  details?: string[]
+}> {
   try {
     const supabase = getSupabaseClient()
-    const { data, error } = await supabase.from(tableName).select("*")
 
-    if (error) {
-      console.error(`Error backing up ${tableName}:`, error)
-      return null
+    // First, inspect the table
+    const expectedColumns = ["id", "user_id", "media_id", "media_type", "rating", "created_at", "updated_at"]
+
+    const inspection = await inspectTable(DB_SCHEMA.TABLES.RATINGS, expectedColumns)
+
+    if (!inspection.exists) {
+      // Table doesn't exist, create it
+      const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS ${DB_SCHEMA.TABLES.RATINGS} (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES auth.users(id) NOT NULL,
+          media_id INTEGER NOT NULL,
+          media_type TEXT NOT NULL,
+          rating INTEGER NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          UNIQUE(user_id, media_id, media_type)
+        );
+        
+        -- Add RLS policies
+        ALTER TABLE ${DB_SCHEMA.TABLES.RATINGS} ENABLE ROW LEVEL SECURITY;
+        
+        -- Policy to allow users to select only their own ratings
+        CREATE POLICY ratings_select_policy ON ${DB_SCHEMA.TABLES.RATINGS}
+          FOR SELECT
+          USING (auth.uid() = user_id);
+          
+        -- Policy to allow users to insert only their own ratings
+        CREATE POLICY ratings_insert_policy ON ${DB_SCHEMA.TABLES.RATINGS}
+          FOR INSERT
+          WITH CHECK (auth.uid() = user_id);
+          
+        -- Policy to allow users to update only their own ratings
+        CREATE POLICY ratings_update_policy ON ${DB_SCHEMA.TABLES.RATINGS}
+          FOR UPDATE
+          USING (auth.uid() = user_id);
+          
+        -- Policy to allow users to delete only their own ratings
+        CREATE POLICY ratings_delete_policy ON ${DB_SCHEMA.TABLES.RATINGS}
+          FOR DELETE
+          USING (auth.uid() = user_id);
+      `
+
+      const { error } = await supabase.rpc("execute_sql", {
+        query: createTableSQL,
+      })
+
+      if (error) {
+        return {
+          success: false,
+          message: "Failed to create ratings table",
+          details: [error.message],
+        }
+      }
+
+      return {
+        success: true,
+        message: "Ratings table created successfully",
+        details: ["Created table with all required columns"],
+      }
     }
 
-    return data || []
-  } catch (error) {
-    console.error(`Error backing up ${tableName}:`, error)
-    return null
+    // Table exists but might have issues
+    if (inspection.missingColumns.length > 0) {
+      // Add missing columns
+      const columnDefinitions: Record<string, string> = {
+        id: "UUID PRIMARY KEY DEFAULT uuid_generate_v4()",
+        user_id: "UUID REFERENCES auth.users(id) NOT NULL",
+        media_id: "INTEGER NOT NULL",
+        media_type: "TEXT NOT NULL",
+        rating: "INTEGER NOT NULL",
+        created_at: "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+        updated_at: "TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+      }
+
+      const success = await fixTableSchema(DB_SCHEMA.TABLES.RATINGS, columnDefinitions)
+
+      if (!success) {
+        return {
+          success: false,
+          message: "Failed to repair ratings table",
+          details: [`Missing columns: ${inspection.missingColumns.join(", ")}`],
+        }
+      }
+
+      return {
+        success: true,
+        message: "Ratings table repaired successfully",
+        details: [`Added missing columns: ${inspection.missingColumns.join(", ")}`],
+      }
+    }
+
+    return {
+      success: true,
+      message: "Ratings table is correctly configured",
+      details: ["All expected columns exist", `Found columns: ${inspection.columns.join(", ")}`],
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: "Error repairing ratings table",
+      details: [error.message],
+    }
   }
 }
 
 /**
- * Restores data to a table
- * @param tableName The name of the table to restore
- * @param data The data to restore
- * @returns A promise that resolves to a boolean indicating if the restore was successful
+ * Repairs all database tables
+ * @returns A promise that resolves to an object with the repair status
  */
-async function restoreTable(tableName: string, data: any[]): Promise<boolean> {
-  if (!data || data.length === 0) {
-    return true // Nothing to restore
+export async function repairAllTables(): Promise<{
+  success: boolean
+  watchlist: {
+    success: boolean
+    message: string
+    details?: string[]
   }
+  ratings: {
+    success: boolean
+    message: string
+    details?: string[]
+  }
+}> {
+  const watchlistResult = await repairWatchlistTable()
+  const ratingsResult = await repairRatingsTable()
 
-  try {
-    const supabase = getSupabaseClient()
-    const { error } = await supabase.from(tableName).insert(data)
-
-    if (error) {
-      console.error(`Error restoring ${tableName}:`, error)
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error(`Error restoring ${tableName}:`, error)
-    return false
+  return {
+    success: watchlistResult.success && ratingsResult.success,
+    watchlist: watchlistResult,
+    ratings: ratingsResult,
   }
 }

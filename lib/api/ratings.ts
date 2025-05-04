@@ -1,30 +1,50 @@
 import { getSupabaseClient } from "@/lib/supabase/client"
-import { DB_SCHEMA, tableExists } from "@/lib/supabase/schema"
+import { DB_SCHEMA } from "@/lib/supabase/schema"
+import { inspectTable } from "@/lib/supabase/inspect"
 import type { AnimeRating } from "@/types/anime"
 
 // Get the Supabase client once at the module level
 const supabase = getSupabaseClient()
 
-// Cache for table existence check
-let ratingsTableExists: boolean | null = null
+// Cache for column mapping
+let ratingsColumnMapping: Record<string, string> | null = null
 
 /**
- * Ensures the ratings table exists before performing operations
- * @returns A promise that resolves to a boolean indicating if the table exists
+ * Gets the column mapping for the ratings table
+ * @returns A promise that resolves to a column mapping object
  */
-async function ensureRatingsTable(): Promise<boolean> {
-  // Use cached value if available
-  if (ratingsTableExists !== null) {
-    return ratingsTableExists
+async function getRatingsColumnMapping(): Promise<Record<string, string>> {
+  if (ratingsColumnMapping !== null) {
+    return ratingsColumnMapping
   }
 
-  try {
-    ratingsTableExists = await tableExists(DB_SCHEMA.TABLES.RATINGS)
-    return ratingsTableExists
-  } catch (error) {
-    console.error("Error checking ratings table:", error)
-    return false
+  const expectedColumns = ["id", "user_id", "media_id", "media_type", "rating", "created_at", "updated_at"]
+
+  const inspection = await inspectTable(DB_SCHEMA.TABLES.RATINGS, expectedColumns)
+
+  if (!inspection.exists) {
+    // Default mapping if table doesn't exist
+    return {
+      id: "id",
+      user_id: "user_id",
+      media_id: "media_id",
+      media_type: "media_type",
+      rating: "rating",
+      created_at: "created_at",
+      updated_at: "updated_at",
+    }
   }
+
+  ratingsColumnMapping = inspection.columnMapping
+
+  // Fill in any missing mappings with defaults
+  for (const col of expectedColumns) {
+    if (!ratingsColumnMapping[col]) {
+      ratingsColumnMapping[col] = col
+    }
+  }
+
+  return ratingsColumnMapping
 }
 
 /**
@@ -48,14 +68,8 @@ export async function rateMedia(
       }
     }
 
-    // Ensure table exists
-    const tableExists = await ensureRatingsTable()
-    if (!tableExists) {
-      return {
-        success: false,
-        message: "Ratings table does not exist. Please set up the database.",
-      }
-    }
+    // Get column mapping
+    const columnMapping = await getRatingsColumnMapping()
 
     // Get user from session
     const {
@@ -72,17 +86,35 @@ export async function rateMedia(
     // Check if item is already rated
     const { data: existingRating, error: checkError } = await supabase
       .from(DB_SCHEMA.TABLES.RATINGS)
-      .select(DB_SCHEMA.COLUMNS.RATINGS.ID)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID, mediaId)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, mediaType)
+      .select(columnMapping.id)
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_id, mediaId)
+      .eq(columnMapping.media_type, mediaType)
       .maybeSingle()
 
     if (checkError && !checkError.message.includes("No rows found")) {
       console.error("Error checking ratings:", checkError)
+
+      // If the error is about a missing column, try to repair the table
+      if (checkError.message.includes("does not exist")) {
+        const { repairRatingsTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairRatingsTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          ratingsColumnMapping = null
+          return rateMedia(mediaId, mediaType, rating)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${checkError.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
-        message: "Failed to check if item is already rated.",
+        message: `Failed to check if item is already rated: ${checkError.message}`,
       }
     }
 
@@ -93,27 +125,45 @@ export async function rateMedia(
       result = await supabase
         .from(DB_SCHEMA.TABLES.RATINGS)
         .update({
-          [DB_SCHEMA.COLUMNS.RATINGS.RATING]: rating,
-          [DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT]: new Date().toISOString(),
+          [columnMapping.rating]: rating,
+          [columnMapping.updated_at]: new Date().toISOString(),
         })
-        .eq(DB_SCHEMA.COLUMNS.RATINGS.ID, existingRating.id)
+        .eq(columnMapping.id, existingRating.id)
     } else {
       // Insert new rating
       result = await supabase.from(DB_SCHEMA.TABLES.RATINGS).insert({
-        [DB_SCHEMA.COLUMNS.RATINGS.USER_ID]: user.id,
-        [DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID]: mediaId,
-        [DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE]: mediaType,
-        [DB_SCHEMA.COLUMNS.RATINGS.RATING]: rating,
-        [DB_SCHEMA.COLUMNS.RATINGS.CREATED_AT]: new Date().toISOString(),
-        [DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT]: new Date().toISOString(),
+        [columnMapping.user_id]: user.id,
+        [columnMapping.media_id]: mediaId,
+        [columnMapping.media_type]: mediaType,
+        [columnMapping.rating]: rating,
+        [columnMapping.created_at]: new Date().toISOString(),
+        [columnMapping.updated_at]: new Date().toISOString(),
       })
     }
 
     if (result.error) {
       console.error("Error rating media:", result.error)
+
+      // If the error is about a missing column, try to repair the table
+      if (result.error.message.includes("does not exist")) {
+        const { repairRatingsTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairRatingsTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          ratingsColumnMapping = null
+          return rateMedia(mediaId, mediaType, rating)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${result.error.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
-        message: "Failed to rate item.",
+        message: `Failed to rate item: ${result.error.message}`,
       }
     }
 
@@ -138,11 +188,8 @@ export async function rateMedia(
  */
 export async function getUserRating(mediaId: number, mediaType: "anime" | "manga"): Promise<number | null> {
   try {
-    // Ensure table exists
-    const tableExists = await ensureRatingsTable()
-    if (!tableExists) {
-      return null
-    }
+    // Get column mapping
+    const columnMapping = await getRatingsColumnMapping()
 
     // Get user from session
     const {
@@ -156,14 +203,25 @@ export async function getUserRating(mediaId: number, mediaType: "anime" | "manga
     // Get rating
     const { data, error } = await supabase
       .from(DB_SCHEMA.TABLES.RATINGS)
-      .select(DB_SCHEMA.COLUMNS.RATINGS.RATING)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID, mediaId)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, mediaType)
+      .select(columnMapping.rating)
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_id, mediaId)
+      .eq(columnMapping.media_type, mediaType)
       .maybeSingle()
 
     if (error && !error.message.includes("No rows found")) {
       console.error("Error getting user rating:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairRatingsTable } = await import("@/lib/supabase/repair")
+        await repairRatingsTable()
+
+        // Don't retry here to avoid potential infinite loops
+        // Just return null and let the user try again
+        return null
+      }
+
       return null
     }
 
@@ -211,12 +269,8 @@ export const rateManga = (mangaId: number, rating: number) => rateMedia(mangaId,
  */
 export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeRating[]> {
   try {
-    // Ensure table exists
-    const tableExists = await ensureRatingsTable()
-    if (!tableExists) {
-      console.error("Ratings table does not exist. Please set up the database.")
-      return []
-    }
+    // Get column mapping
+    const columnMapping = await getRatingsColumnMapping()
 
     // Get user from session
     const {
@@ -231,19 +285,19 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
     let query = supabase
       .from(DB_SCHEMA.TABLES.RATINGS)
       .select(`
-        ${DB_SCHEMA.COLUMNS.RATINGS.ID},
-        ${DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID},
-        ${DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE},
-        ${DB_SCHEMA.COLUMNS.RATINGS.RATING},
-        ${DB_SCHEMA.COLUMNS.RATINGS.CREATED_AT},
-        ${DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT}
+        ${columnMapping.id},
+        ${columnMapping.media_id},
+        ${columnMapping.media_type},
+        ${columnMapping.rating},
+        ${columnMapping.created_at},
+        ${columnMapping.updated_at}
       `)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id)
-      .order(DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT, { ascending: false })
+      .eq(columnMapping.user_id, user.id)
+      .order(columnMapping.updated_at, { ascending: false })
 
     // Filter by type if provided
     if (type) {
-      query = query.eq(DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE, type)
+      query = query.eq(columnMapping.media_type, type)
     }
 
     // Execute query
@@ -251,6 +305,19 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
 
     if (error) {
       console.error("Error fetching user ratings:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairRatingsTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairRatingsTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          ratingsColumnMapping = null
+          return fetchUserRatings(type)
+        }
+      }
+
       return []
     }
 
@@ -261,14 +328,14 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
     // Transform the data to match the AnimeRating type
     const ratings: AnimeRating[] = data.map((item) => {
       return {
-        id: item.id,
-        mediaId: item.media_id,
-        type: item.media_type,
-        rating: item.rating,
+        id: item[columnMapping.id],
+        mediaId: item[columnMapping.media_id],
+        type: item[columnMapping.media_type],
+        rating: item[columnMapping.rating],
         title: "Title will be fetched separately", // We'll need to fetch titles separately
         coverImage: null, // We'll need to fetch cover images separately
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
+        createdAt: item[columnMapping.created_at],
+        updatedAt: item[columnMapping.updated_at],
       }
     })
 
@@ -286,14 +353,8 @@ export async function fetchUserRatings(type?: "anime" | "manga"): Promise<AnimeR
  */
 export async function deleteRating(ratingId: string): Promise<{ success: boolean; message?: string }> {
   try {
-    // Ensure table exists
-    const tableExists = await ensureRatingsTable()
-    if (!tableExists) {
-      return {
-        success: false,
-        message: "Ratings table does not exist. Please set up the database.",
-      }
-    }
+    // Get column mapping
+    const columnMapping = await getRatingsColumnMapping()
 
     // Get user from session
     const {
@@ -311,14 +372,32 @@ export async function deleteRating(ratingId: string): Promise<{ success: boolean
     const { error } = await supabase
       .from(DB_SCHEMA.TABLES.RATINGS)
       .delete()
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.ID, ratingId)
-      .eq(DB_SCHEMA.COLUMNS.RATINGS.USER_ID, user.id) // Ensure user can only delete their own ratings
+      .eq(columnMapping.id, ratingId)
+      .eq(columnMapping.user_id, user.id) // Ensure user can only delete their own ratings
 
     if (error) {
       console.error("Error deleting rating:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairRatingsTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairRatingsTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          ratingsColumnMapping = null
+          return deleteRating(ratingId)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${error.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
-        message: "Failed to delete rating.",
+        message: `Failed to delete rating: ${error.message}`,
       }
     }
 
@@ -332,5 +411,20 @@ export async function deleteRating(ratingId: string): Promise<{ success: boolean
       success: false,
       message: error.message || "An unexpected error occurred.",
     }
+  }
+}
+
+/**
+ * Ensures the ratings table exists with the correct schema
+ * @returns A promise that resolves to a boolean indicating if the table is ready
+ */
+export async function ensureRatingsTable(): Promise<boolean> {
+  try {
+    const { repairRatingsTable } = await import("@/lib/supabase/repair")
+    const result = await repairRatingsTable()
+    return result.success
+  } catch (error) {
+    console.error("Error ensuring ratings table:", error)
+    return false
   }
 }

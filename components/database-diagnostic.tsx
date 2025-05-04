@@ -7,12 +7,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, CheckCircle2, Database, RefreshCw } from "lucide-react"
 import { getSupabaseClient } from "@/lib/supabase/client"
 import { DB_SCHEMA } from "@/lib/supabase/schema"
+import { inspectTable } from "@/lib/supabase/inspect"
 
 export function DatabaseDiagnostic() {
   const [isChecking, setIsChecking] = useState(false)
   const [results, setResults] = useState<{
     tables: Record<string, boolean>
     columns: Record<string, string[]>
+    missingColumns: Record<string, string[]>
     errors: string[]
   } | null>(null)
 
@@ -21,54 +23,87 @@ export function DatabaseDiagnostic() {
     setResults(null)
 
     try {
-      const supabase = getSupabaseClient()
       const tables: Record<string, boolean> = {}
       const columns: Record<string, string[]> = {}
+      const missingColumns: Record<string, string[]> = {}
       const errors: string[] = []
 
-      // Check if tables exist
-      for (const table of Object.values(DB_SCHEMA.TABLES)) {
-        try {
-          const { error } = await supabase.from(table).select("count").limit(1)
-          tables[table] = !error || !error.message.includes("does not exist")
+      // Check watchlist table
+      const watchlistInspection = await inspectTable(DB_SCHEMA.TABLES.WATCHLIST, [
+        "id",
+        "user_id",
+        "media_id",
+        "media_type",
+        "added_at",
+      ])
 
-          if (tables[table]) {
-            // Try to get columns
-            try {
-              const { data, error: colError } = await supabase.rpc("get_table_columns", { table_name: table })
+      tables[DB_SCHEMA.TABLES.WATCHLIST] = watchlistInspection.exists
+      columns[DB_SCHEMA.TABLES.WATCHLIST] = watchlistInspection.columns
+      missingColumns[DB_SCHEMA.TABLES.WATCHLIST] = watchlistInspection.missingColumns
 
-              if (colError) {
-                // Fallback: try to infer columns from a query
-                const { data: sampleData, error: sampleError } = await supabase.from(table).select("*").limit(1)
+      // Check ratings table
+      const ratingsInspection = await inspectTable(DB_SCHEMA.TABLES.RATINGS, [
+        "id",
+        "user_id",
+        "media_id",
+        "media_type",
+        "rating",
+        "created_at",
+        "updated_at",
+      ])
 
-                if (sampleError) {
-                  errors.push(`Error fetching columns for ${table}: ${sampleError.message}`)
-                  columns[table] = []
-                } else {
-                  columns[table] = sampleData && sampleData.length > 0 ? Object.keys(sampleData[0]) : []
-                }
-              } else {
-                columns[table] = data || []
-              }
-            } catch (colError: any) {
-              errors.push(`Error fetching columns for ${table}: ${colError.message}`)
-              columns[table] = []
-            }
-          } else {
-            columns[table] = []
-          }
-        } catch (error: any) {
-          errors.push(`Error checking table ${table}: ${error.message}`)
-          tables[table] = false
-          columns[table] = []
+      tables[DB_SCHEMA.TABLES.RATINGS] = ratingsInspection.exists
+      columns[DB_SCHEMA.TABLES.RATINGS] = ratingsInspection.columns
+      missingColumns[DB_SCHEMA.TABLES.RATINGS] = ratingsInspection.missingColumns
+
+      // Check profiles table
+      const profilesInspection = await inspectTable(DB_SCHEMA.TABLES.PROFILES, [
+        "id",
+        "username",
+        "avatar_url",
+        "email",
+        "bio",
+        "created_at",
+        "updated_at",
+      ])
+
+      tables[DB_SCHEMA.TABLES.PROFILES] = profilesInspection.exists
+      columns[DB_SCHEMA.TABLES.PROFILES] = profilesInspection.columns
+      missingColumns[DB_SCHEMA.TABLES.PROFILES] = profilesInspection.missingColumns
+
+      // Check if helper functions exist
+      const supabase = getSupabaseClient()
+
+      try {
+        const { error: functionError } = await supabase.rpc("get_table_columns", {
+          table_name: "watchlist",
+        })
+
+        if (functionError && functionError.message.includes("function get_table_columns")) {
+          errors.push("The get_table_columns function is missing. This is required for column name detection.")
         }
+      } catch (error: any) {
+        errors.push(`Error checking get_table_columns function: ${error.message}`)
       }
 
-      setResults({ tables, columns, errors })
+      try {
+        const { error: functionError } = await supabase.rpc("execute_sql", {
+          query: "SELECT 1",
+        })
+
+        if (functionError && functionError.message.includes("function execute_sql")) {
+          errors.push("The execute_sql function is missing. This is required for database repairs.")
+        }
+      } catch (error: any) {
+        errors.push(`Error checking execute_sql function: ${error.message}`)
+      }
+
+      setResults({ tables, columns, missingColumns, errors })
     } catch (error: any) {
       setResults({
         tables: {},
         columns: {},
+        missingColumns: {},
         errors: [`Error checking database: ${error.message}`],
       })
     } finally {
@@ -135,6 +170,19 @@ export function DatabaseDiagnostic() {
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">No columns found</p>
+                  )}
+
+                  {results.missingColumns[table].length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-sm text-amber-500 font-medium">Missing columns:</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1">
+                        {results.missingColumns[table].map((col) => (
+                          <div key={col} className="font-mono text-xs bg-amber-100 dark:bg-amber-900 p-1 rounded">
+                            {col}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               ))}

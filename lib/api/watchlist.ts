@@ -1,115 +1,48 @@
 import { getSupabaseClient } from "@/lib/supabase/client"
-import { DB_SCHEMA, tableExists } from "@/lib/supabase/schema"
+import { DB_SCHEMA } from "@/lib/supabase/schema"
+import { inspectTable } from "@/lib/supabase/inspect"
 import type { Anime, Manga } from "@/types/anime"
 
 // Get the Supabase client once at the module level
 const supabase = getSupabaseClient()
 
-// Cache for table existence check
-let watchlistTableExists: boolean | null = null
-let watchlistColumns: string[] | null = null
+// Cache for column mapping
+let watchlistColumnMapping: Record<string, string> | null = null
 
 /**
- * Fetches the column names for a table
- * @param tableName The name of the table
- * @returns A promise that resolves to an array of column names
+ * Gets the column mapping for the watchlist table
+ * @returns A promise that resolves to a column mapping object
  */
-async function getTableColumns(tableName: string): Promise<string[]> {
-  try {
-    const { data, error } = await supabase.rpc("get_table_columns", { table_name: tableName })
-
-    if (error) {
-      console.error(`Error fetching columns for ${tableName}:`, error)
-      // Fallback: try to infer columns from a query
-      const { data: sampleData, error: sampleError } = await supabase.from(tableName).select("*").limit(1)
-
-      if (sampleError) {
-        console.error(`Error fetching sample data from ${tableName}:`, sampleError)
-        return []
-      }
-
-      return sampleData && sampleData.length > 0 ? Object.keys(sampleData[0]) : []
-    }
-
-    return data || []
-  } catch (error) {
-    console.error(`Error in getTableColumns for ${tableName}:`, error)
-    return []
+async function getWatchlistColumnMapping(): Promise<Record<string, string>> {
+  if (watchlistColumnMapping !== null) {
+    return watchlistColumnMapping
   }
-}
 
-/**
- * Ensures the watchlist table exists and has the expected columns
- * @returns A promise that resolves to an object with table existence and column mapping
- */
-async function ensureWatchlistTable(): Promise<{
-  exists: boolean
-  columns: {
-    id: string
-    userId: string
-    mediaId: string
-    mediaType: string
-    addedAt: string
-  }
-}> {
-  // Use cached values if available
-  if (watchlistTableExists !== null && watchlistColumns !== null) {
+  const expectedColumns = ["id", "user_id", "media_id", "media_type", "added_at"]
+
+  const inspection = await inspectTable(DB_SCHEMA.TABLES.WATCHLIST, expectedColumns)
+
+  if (!inspection.exists) {
+    // Default mapping if table doesn't exist
     return {
-      exists: watchlistTableExists,
-      columns: {
-        id: "id",
-        userId: watchlistColumns.find((c) => c.toLowerCase() === "user_id") || "user_id",
-        mediaId: watchlistColumns.find((c) => c.toLowerCase() === "media_id") || "media_id",
-        mediaType: watchlistColumns.find((c) => c.toLowerCase() === "media_type") || "media_type",
-        addedAt: watchlistColumns.find((c) => c.toLowerCase() === "added_at") || "added_at",
-      },
+      id: "id",
+      user_id: "user_id",
+      media_id: "media_id",
+      media_type: "media_type",
+      added_at: "added_at",
     }
   }
 
-  try {
-    // Check if table exists
-    watchlistTableExists = await tableExists(DB_SCHEMA.TABLES.WATCHLIST)
+  watchlistColumnMapping = inspection.columnMapping
 
-    if (!watchlistTableExists) {
-      return {
-        exists: false,
-        columns: {
-          id: "id",
-          userId: "user_id",
-          mediaId: "media_id",
-          mediaType: "media_type",
-          addedAt: "added_at",
-        },
-      }
-    }
-
-    // Get actual column names from the database
-    watchlistColumns = await getTableColumns(DB_SCHEMA.TABLES.WATCHLIST)
-
-    // Map expected column names to actual column names (case-insensitive)
-    return {
-      exists: true,
-      columns: {
-        id: watchlistColumns.find((c) => c.toLowerCase() === "id") || "id",
-        userId: watchlistColumns.find((c) => c.toLowerCase() === "user_id") || "user_id",
-        mediaId: watchlistColumns.find((c) => c.toLowerCase() === "media_id") || "media_id",
-        mediaType: watchlistColumns.find((c) => c.toLowerCase() === "media_type") || "media_type",
-        addedAt: watchlistColumns.find((c) => c.toLowerCase() === "added_at") || "added_at",
-      },
-    }
-  } catch (error) {
-    console.error("Error checking watchlist table:", error)
-    return {
-      exists: false,
-      columns: {
-        id: "id",
-        userId: "user_id",
-        mediaId: "media_id",
-        mediaType: "media_type",
-        addedAt: "added_at",
-      },
+  // Fill in any missing mappings with defaults
+  for (const col of expectedColumns) {
+    if (!watchlistColumnMapping[col]) {
+      watchlistColumnMapping[col] = col
     }
   }
+
+  return watchlistColumnMapping
 }
 
 /**
@@ -123,14 +56,8 @@ export async function addToWatchlist(
   mediaType: "anime" | "manga",
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    // Ensure table exists and get column mapping
-    const { exists, columns } = await ensureWatchlistTable()
-    if (!exists) {
-      return {
-        success: false,
-        message: "Watchlist table does not exist. Please set up the database.",
-      }
-    }
+    // Get column mapping
+    const columnMapping = await getWatchlistColumnMapping()
 
     // Get user from session
     const {
@@ -147,14 +74,32 @@ export async function addToWatchlist(
     // Check if item is already in watchlist
     const { data: existingItem, error: checkError } = await supabase
       .from(DB_SCHEMA.TABLES.WATCHLIST)
-      .select(columns.id)
-      .eq(columns.userId, user.id)
-      .eq(columns.mediaId, mediaId)
-      .eq(columns.mediaType, mediaType)
+      .select(columnMapping.id)
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_id, mediaId)
+      .eq(columnMapping.media_type, mediaType)
       .maybeSingle()
 
-    if (checkError && !checkError.message.includes("No rows found")) {
+    if (checkError) {
       console.error("Error checking watchlist:", checkError)
+
+      // If the error is about a missing column, try to repair the table
+      if (checkError.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairWatchlistTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          watchlistColumnMapping = null
+          return addToWatchlist(mediaId, mediaType)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${checkError.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
         message: `Failed to check if item is already in watchlist: ${checkError.message}`,
@@ -171,14 +116,32 @@ export async function addToWatchlist(
 
     // Add item to watchlist
     const { error } = await supabase.from(DB_SCHEMA.TABLES.WATCHLIST).insert({
-      [columns.userId]: user.id,
-      [columns.mediaId]: mediaId,
-      [columns.mediaType]: mediaType,
-      [columns.addedAt]: new Date().toISOString(),
+      [columnMapping.user_id]: user.id,
+      [columnMapping.media_id]: mediaId,
+      [columnMapping.media_type]: mediaType,
+      [columnMapping.added_at]: new Date().toISOString(),
     })
 
     if (error) {
       console.error("Error adding to watchlist:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairWatchlistTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          watchlistColumnMapping = null
+          return addToWatchlist(mediaId, mediaType)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${error.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
         message: `Failed to add item to watchlist: ${error.message}`,
@@ -209,14 +172,8 @@ export async function removeFromWatchlist(
   mediaType: "anime" | "manga",
 ): Promise<{ success: boolean; message?: string }> {
   try {
-    // Ensure table exists and get column mapping
-    const { exists, columns } = await ensureWatchlistTable()
-    if (!exists) {
-      return {
-        success: false,
-        message: "Watchlist table does not exist. Please set up the database.",
-      }
-    }
+    // Get column mapping
+    const columnMapping = await getWatchlistColumnMapping()
 
     // Get user from session
     const {
@@ -234,12 +191,30 @@ export async function removeFromWatchlist(
     const { error } = await supabase
       .from(DB_SCHEMA.TABLES.WATCHLIST)
       .delete()
-      .eq(columns.userId, user.id)
-      .eq(columns.mediaId, mediaId)
-      .eq(columns.mediaType, mediaType)
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_id, mediaId)
+      .eq(columnMapping.media_type, mediaType)
 
     if (error) {
       console.error("Error removing from watchlist:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairWatchlistTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          watchlistColumnMapping = null
+          return removeFromWatchlist(mediaId, mediaType)
+        } else {
+          return {
+            success: false,
+            message: `Database error: ${error.message}. Repair attempt failed: ${repairResult.message}`,
+          }
+        }
+      }
+
       return {
         success: false,
         message: `Failed to remove item from watchlist: ${error.message}`,
@@ -267,11 +242,8 @@ export async function removeFromWatchlist(
  */
 export async function checkInWatchlist(mediaId: number, mediaType: "anime" | "manga"): Promise<boolean> {
   try {
-    // Ensure table exists and get column mapping
-    const { exists, columns } = await ensureWatchlistTable()
-    if (!exists) {
-      return false // If table doesn't exist, item is not in watchlist
-    }
+    // Get column mapping
+    const columnMapping = await getWatchlistColumnMapping()
 
     // Get user from session
     const {
@@ -285,14 +257,25 @@ export async function checkInWatchlist(mediaId: number, mediaType: "anime" | "ma
     // Check if item is in watchlist
     const { data, error } = await supabase
       .from(DB_SCHEMA.TABLES.WATCHLIST)
-      .select(columns.id)
-      .eq(columns.userId, user.id)
-      .eq(columns.mediaId, mediaId)
-      .eq(columns.mediaType, mediaType)
+      .select(columnMapping.id)
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_id, mediaId)
+      .eq(columnMapping.media_type, mediaType)
       .maybeSingle()
 
-    if (error && !error.message.includes("No rows found")) {
+    if (error) {
       console.error("Error checking watchlist:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        await repairWatchlistTable()
+
+        // Don't retry here to avoid potential infinite loops
+        // Just return false and let the user try again
+        return false
+      }
+
       return false
     }
 
@@ -310,12 +293,8 @@ export async function checkInWatchlist(mediaId: number, mediaType: "anime" | "ma
  */
 export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise<Anime[] | Manga[]> {
   try {
-    // Ensure table exists and get column mapping
-    const { exists, columns } = await ensureWatchlistTable()
-    if (!exists) {
-      console.log("Watchlist table does not exist. Please set up the database.")
-      return [] // Return empty array if table doesn't exist
-    }
+    // Get column mapping
+    const columnMapping = await getWatchlistColumnMapping()
 
     // Get user from session
     const {
@@ -330,15 +309,28 @@ export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise
     const { data, error } = await supabase
       .from(DB_SCHEMA.TABLES.WATCHLIST)
       .select(`
-        ${columns.mediaId},
-        ${columns.addedAt}
+        ${columnMapping.media_id},
+        ${columnMapping.added_at}
       `)
-      .eq(columns.userId, user.id)
-      .eq(columns.mediaType, type)
-      .order(columns.addedAt, { ascending: false })
+      .eq(columnMapping.user_id, user.id)
+      .eq(columnMapping.media_type, type)
+      .order(columnMapping.added_at, { ascending: false })
 
     if (error) {
       console.error("Error fetching watchlist:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairWatchlistTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          watchlistColumnMapping = null
+          return fetchWatchlist(type)
+        }
+      }
+
       return []
     }
 
@@ -348,7 +340,7 @@ export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise
 
     // For now, return the IDs - in a real app, you would fetch the full details
     // from your anime/manga tables or an external API
-    return data.map((item) => ({ id: item[columns.mediaId] }) as any)
+    return data.map((item) => ({ id: item[columnMapping.media_id] }) as any)
   } catch (error) {
     console.error(`Error in fetchWatchlist:`, error)
     return []
@@ -362,11 +354,8 @@ export async function fetchWatchlist(type: "anime" | "manga" = "anime"): Promise
  */
 export async function getWatchlistCount(type?: "anime" | "manga"): Promise<number> {
   try {
-    // Ensure table exists and get column mapping
-    const { exists, columns } = await ensureWatchlistTable()
-    if (!exists) {
-      return 0 // Return 0 if table doesn't exist
-    }
+    // Get column mapping
+    const columnMapping = await getWatchlistColumnMapping()
 
     // Get user from session
     const {
@@ -380,11 +369,11 @@ export async function getWatchlistCount(type?: "anime" | "manga"): Promise<numbe
     // Build query
     let query = supabase
       .from(DB_SCHEMA.TABLES.WATCHLIST)
-      .select(columns.id, { count: "exact" })
-      .eq(columns.userId, user.id)
+      .select(columnMapping.id, { count: "exact" })
+      .eq(columnMapping.user_id, user.id)
 
     if (type) {
-      query = query.eq(columns.mediaType, type)
+      query = query.eq(columnMapping.media_type, type)
     }
 
     // Execute query
@@ -392,6 +381,19 @@ export async function getWatchlistCount(type?: "anime" | "manga"): Promise<numbe
 
     if (error) {
       console.error("Error getting watchlist count:", error)
+
+      // If the error is about a missing column, try to repair the table
+      if (error.message.includes("does not exist")) {
+        const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+        const repairResult = await repairWatchlistTable()
+
+        if (repairResult.success) {
+          // Retry the operation with updated column mapping
+          watchlistColumnMapping = null
+          return getWatchlistCount(type)
+        }
+      }
+
       return 0
     }
 
@@ -437,5 +439,20 @@ export async function toggleWatchlistItem(
       inWatchlist: false,
       message: error.message || "An unexpected error occurred.",
     }
+  }
+}
+
+/**
+ * Ensures the watchlist table exists with the correct schema
+ * @returns A promise that resolves to a boolean indicating if the table is ready
+ */
+export async function ensureWatchlistTable(): Promise<boolean> {
+  try {
+    const { repairWatchlistTable } = await import("@/lib/supabase/repair")
+    const result = await repairWatchlistTable()
+    return result.success
+  } catch (error) {
+    console.error("Error ensuring watchlist table:", error)
+    return false
   }
 }

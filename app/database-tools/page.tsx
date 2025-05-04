@@ -11,6 +11,9 @@ export default function DatabaseToolsPage() {
   return (
     <div className="container py-10">
       <h1 className="text-3xl font-bold mb-6">Database Tools</h1>
+      <p className="text-muted-foreground mb-8">
+        Use these tools to diagnose and fix issues with your database schema.
+      </p>
 
       <div className="grid gap-8 md:grid-cols-2">
         <div>
@@ -43,7 +46,7 @@ export default function DatabaseToolsPage() {
             <li>Refresh the application</li>
           </ol>
 
-          <p>Additionally, you need to create a helper function for the application to work properly:</p>
+          <p>Additionally, you need to create helper functions for the application to work properly:</p>
 
           <pre className="bg-muted p-4 rounded-md overflow-auto">
             <code>{`
