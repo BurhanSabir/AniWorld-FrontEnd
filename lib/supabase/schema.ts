@@ -232,6 +232,50 @@ $$;
 `
 
 /**
+ * Checks if a table has the expected columns
+ * @param tableName The name of the table to check
+ * @param expectedColumns Array of expected column names
+ * @returns A promise that resolves to a boolean indicating if the table has all expected columns
+ */
+export async function tableHasColumns(tableName: string, expectedColumns: string[]): Promise<boolean> {
+  try {
+    const supabase = getSupabaseClient()
+
+    // Try to use the get_table_columns function if it exists
+    const { data, error } = await supabase.rpc("get_table_columns", { table_name: tableName })
+
+    if (error) {
+      console.error(`Error fetching columns for ${tableName}:`, error)
+
+      // Fallback: try to infer columns from a query
+      const { data: sampleData, error: sampleError } = await supabase.from(tableName).select("*").limit(1)
+
+      if (sampleError) {
+        console.error(`Error fetching sample data from ${tableName}:`, sampleError)
+        return false
+      }
+
+      if (!sampleData || sampleData.length === 0) {
+        return false
+      }
+
+      const actualColumns = Object.keys(sampleData[0]).map((col) => col.toLowerCase())
+      return expectedColumns.every((col) => actualColumns.includes(col.toLowerCase()))
+    }
+
+    if (!data || data.length === 0) {
+      return false
+    }
+
+    const actualColumns = data.map((col: string) => col.toLowerCase())
+    return expectedColumns.every((col) => actualColumns.includes(col.toLowerCase()))
+  } catch (error) {
+    console.error(`Error checking columns for ${tableName}:`, error)
+    return false
+  }
+}
+
+/**
  * Checks if a table exists in the database
  * @param tableName The name of the table to check
  * @returns A promise that resolves to a boolean indicating if the table exists
@@ -283,6 +327,57 @@ export async function setupDatabase(): Promise<{
         tableExists(DB_SCHEMA.TABLES.RATINGS),
         tableExists(DB_SCHEMA.TABLES.PROFILES),
       ])
+
+      // Check if tables have the expected columns
+      const [watchlistHasColumns, ratingsHasColumns, profilesHasColumns] = await Promise.all([
+        watchlistExists
+          ? tableHasColumns(DB_SCHEMA.TABLES.WATCHLIST, [
+              DB_SCHEMA.COLUMNS.WATCHLIST.ID,
+              DB_SCHEMA.COLUMNS.WATCHLIST.USER_ID,
+              DB_SCHEMA.COLUMNS.WATCHLIST.MEDIA_ID,
+              DB_SCHEMA.COLUMNS.WATCHLIST.MEDIA_TYPE,
+              DB_SCHEMA.COLUMNS.WATCHLIST.ADDED_AT,
+            ])
+          : false,
+        ratingsExists
+          ? tableHasColumns(DB_SCHEMA.TABLES.RATINGS, [
+              DB_SCHEMA.COLUMNS.RATINGS.ID,
+              DB_SCHEMA.COLUMNS.RATINGS.USER_ID,
+              DB_SCHEMA.COLUMNS.RATINGS.MEDIA_ID,
+              DB_SCHEMA.COLUMNS.RATINGS.MEDIA_TYPE,
+              DB_SCHEMA.COLUMNS.RATINGS.RATING,
+              DB_SCHEMA.COLUMNS.RATINGS.CREATED_AT,
+              DB_SCHEMA.COLUMNS.RATINGS.UPDATED_AT,
+            ])
+          : false,
+        profilesExists
+          ? tableHasColumns(DB_SCHEMA.TABLES.PROFILES, [
+              DB_SCHEMA.COLUMNS.PROFILES.ID,
+              DB_SCHEMA.COLUMNS.PROFILES.USERNAME,
+              DB_SCHEMA.COLUMNS.PROFILES.AVATAR_URL,
+              DB_SCHEMA.COLUMNS.PROFILES.EMAIL,
+              DB_SCHEMA.COLUMNS.PROFILES.BIO,
+              DB_SCHEMA.COLUMNS.PROFILES.CREATED_AT,
+              DB_SCHEMA.COLUMNS.PROFILES.UPDATED_AT,
+            ])
+          : false,
+      ])
+
+      // If tables exist but don't have the expected columns, we need to recreate them
+      if (watchlistExists && !watchlistHasColumns) {
+        console.warn(`Table ${DB_SCHEMA.TABLES.WATCHLIST} exists but doesn't have the expected columns`)
+        // Add logic to handle this case (e.g., alter table, recreate table, etc.)
+      }
+
+      if (ratingsExists && !ratingsHasColumns) {
+        console.warn(`Table ${DB_SCHEMA.TABLES.RATINGS} exists but doesn't have the expected columns`)
+        // Add logic to handle this case
+      }
+
+      if (profilesExists && !profilesHasColumns) {
+        console.warn(`Table ${DB_SCHEMA.TABLES.PROFILES} exists but doesn't have the expected columns`)
+        // Add logic to handle this case
+      }
 
       // If tables already exist, we're good
       if (watchlistExists && ratingsExists && profilesExists) {
