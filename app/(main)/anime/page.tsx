@@ -18,6 +18,7 @@ import type { Anime } from "@/types/anime"
 import type { PageInfo } from "@/lib/api/anilist"
 import { useMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
+import { WatchlistErrorFallback } from "@/components/watchlist-error-fallback"
 
 function AnimePageContent() {
   const [animeList, setAnimeList] = useState<Anime[]>([])
@@ -35,6 +36,7 @@ function AnimePageContent() {
   const { toast } = useToast()
   const { isAuthenticated } = useAuth()
   const isMobile = useMobile()
+  const [databaseError, setDatabaseError] = useState(false)
 
   useEffect(() => {
     const loadAnime = async () => {
@@ -55,6 +57,9 @@ function AnimePageContent() {
         setInitialLoad(false)
       } catch (error) {
         console.error("Error loading anime:", error)
+        if (error.message && error.message.includes("watchlist") && error.message.includes("does not exist")) {
+          setDatabaseError(true)
+        }
         toast({
           title: "Error",
           description: "Failed to load anime list",
@@ -205,6 +210,12 @@ function AnimePageContent() {
 }
 
 export default function AnimePage() {
+  const [databaseError, setDatabaseError] = useState(false)
+
+  if (databaseError) {
+    return <WatchlistErrorFallback />
+  }
+
   return (
     <FilterProvider>
       <AnimePageContent />

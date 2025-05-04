@@ -1,66 +1,129 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Star } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { getUserAnimeRating, getUserMangaRating, rateAnime, rateManga } from "@/lib/api/ratings"
+import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/context/auth-context"
 
 interface StarRatingProps {
-  initialRating?: number
-  maxRating?: number
+  mediaId: number
+  mediaType: "anime" | "manga"
   size?: "sm" | "md" | "lg"
-  readOnly?: boolean
-  onRatingChange?: (rating: number) => void
+  showRating?: boolean
   className?: string
 }
 
-export function StarRating({
-  initialRating = 0,
-  maxRating = 5,
-  size = "md",
-  readOnly = false,
-  onRatingChange,
-  className,
-}: StarRatingProps) {
-  const [rating, setRating] = useState(initialRating)
-  const [hoverRating, setHoverRating] = useState(0)
+export function StarRating({ mediaId, mediaType, size = "md", showRating = true, className = "" }: StarRatingProps) {
+  const [rating, setRating] = useState<number>(0)
+  const [hoveredRating, setHoveredRating] = useState<number>(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
+  const { user, token } = useAuth()
 
-  const handleClick = (selectedRating: number) => {
-    if (readOnly) return
-
-    // If clicking the same star twice, remove the rating
-    const newRating = rating === selectedRating ? 0 : selectedRating
-    setRating(newRating)
-    onRatingChange?.(newRating)
+  const sizeClass = {
+    sm: "w-4 h-4",
+    md: "w-5 h-5",
+    lg: "w-6 h-6",
   }
 
-  const starSizes = {
-    sm: "h-4 w-4",
-    md: "h-5 w-5",
-    lg: "h-6 w-6",
-  }
+  useEffect(() => {
+    const fetchRating = async () => {
+      if (!user) return
 
-  const starSize = starSizes[size]
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        let userRating: number | null = null
+
+        if (mediaType === "anime") {
+          userRating = await getUserAnimeRating(mediaId)
+        } else {
+          userRating = await getUserMangaRating(mediaId)
+        }
+
+        if (userRating) {
+          setRating(userRating)
+        }
+      } catch (err) {
+        console.error("Error fetching user rating:", err)
+        setError("Failed to load your rating")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchRating()
+  }, [mediaId, mediaType, user])
+
+  const handleRating = async (newRating: number) => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to rate this content",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      if (mediaType === "anime") {
+        await rateAnime(mediaId, newRating)
+      } else {
+        await rateManga(mediaId, newRating)
+      }
+
+      setRating(newRating)
+      toast({
+        title: "Rating submitted",
+        description: `You rated this ${mediaType} ${newRating} stars`,
+      })
+    } catch (err) {
+      console.error("Error submitting rating:", err)
+      setError("Failed to submit rating")
+      toast({
+        title: "Rating failed",
+        description: "There was an error submitting your rating",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
-    <div className={cn("flex items-center", className)} onMouseLeave={() => !readOnly && setHoverRating(0)}>
-      {Array.from({ length: maxRating }).map((_, index) => {
-        const starValue = index + 1
-        const isFilled = hoverRating ? starValue <= hoverRating : starValue <= rating
+    <div className={`flex flex-col items-center ${className}`}>
+      <div className="flex space-x-1">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            type="button"
+            disabled={isLoading}
+            onClick={() => handleRating(star)}
+            onMouseEnter={() => setHoveredRating(star)}
+            onMouseLeave={() => setHoveredRating(0)}
+            className={`focus:outline-none transition-colors duration-200 ${
+              isLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            }`}
+            aria-label={`Rate ${star} stars`}
+          >
+            <Star
+              className={`${sizeClass[size]} ${
+                star <= (hoveredRating || rating) ? "text-yellow-400 fill-yellow-400" : "text-gray-300"
+              }`}
+            />
+          </button>
+        ))}
+      </div>
 
-        return (
-          <Star
-            key={index}
-            className={cn(
-              starSize,
-              "cursor-pointer transition-all",
-              isFilled ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground",
-              readOnly && "cursor-default",
-            )}
-            onClick={() => handleClick(starValue)}
-            onMouseEnter={() => !readOnly && setHoverRating(starValue)}
-          />
-        )
-      })}
+      {showRating && rating > 0 && <span className="text-sm mt-1 text-gray-600">Your rating: {rating}/5</span>}
+
+      {error && <span className="text-xs mt-1 text-red-500">{error}</span>}
     </div>
   )
 }

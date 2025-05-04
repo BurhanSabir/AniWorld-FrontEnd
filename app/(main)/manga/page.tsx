@@ -18,6 +18,7 @@ import { useAuth } from "@/context/auth-context"
 import type { Manga } from "@/types/anime"
 import type { PageInfo } from "@/lib/api/anilist"
 import { cn } from "@/lib/utils"
+import { WatchlistErrorFallback } from "@/components/watchlist-error-fallback"
 
 function MangaPageContent() {
   const [mangaList, setMangaList] = useState<Manga[]>([])
@@ -35,6 +36,7 @@ function MangaPageContent() {
   const { toast } = useToast()
   const { isAuthenticated } = useAuth()
   const isMobile = useMobile()
+  const [databaseError, setDatabaseError] = useState(false)
 
   useEffect(() => {
     const loadManga = async () => {
@@ -55,6 +57,9 @@ function MangaPageContent() {
         setInitialLoad(false)
       } catch (error) {
         console.error("Error loading manga:", error)
+        if (error.message && error.message.includes("watchlist") && error.message.includes("does not exist")) {
+          setDatabaseError(true)
+        }
         toast({
           title: "Error",
           description: "Failed to load manga list",
@@ -205,6 +210,12 @@ function MangaPageContent() {
 }
 
 export default function MangaPage() {
+  const [databaseError, setDatabaseError] = useState(false)
+
+  if (databaseError) {
+    return <WatchlistErrorFallback />
+  }
+
   return (
     <FilterProvider>
       <MangaPageContent />
